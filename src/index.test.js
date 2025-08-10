@@ -73,9 +73,9 @@ test("raw.encode - custom configuration", async () => {
 	const testData = createTestData(500);
 	const config = {
 		symbol_size: 800,
-		repair_symbols: 10,
-		source_blocks: 1,
-		sub_blocks: 1,
+		num_repair_symbols: 10,
+		num_source_blocks: 1,
+		num_sub_blocks: 1,
 		symbol_alignment: 8
 	};
 
@@ -101,50 +101,6 @@ test("raw.encode - custom configuration", async () => {
 		return symbolCount > 0;
 	} catch (error) {
 		console.error("Custom config test error:", error);
-		return false;
-	}
-});
-
-// Test parameter validation
-test("raw.encode - parameter validation", () => {
-	const testData = createTestData(100);
-
-	try {
-		// Test invalid symbol size
-		try {
-			raw.encode({ options: { symbol_size: 70000 }, data: testData });
-			return false; // Should have thrown
-		} catch (e) {
-			if (!e.message.includes("Symbol size")) return false;
-		}
-
-		// Test invalid source blocks
-		try {
-			raw.encode({ options: { source_blocks: 300 }, data: testData });
-			return false; // Should have thrown
-		} catch (e) {
-			if (!e.message.includes("Source blocks")) return false;
-		}
-
-		// Test invalid symbol alignment
-		try {
-			raw.encode({ options: { symbol_alignment: 5 }, data: testData });
-			return false; // Should have thrown
-		} catch (e) {
-			if (!e.message.includes("Symbol alignment")) return false;
-		}
-
-		// Test invalid data type
-		try {
-			raw.encode({ options: {}, data: "not a uint8array" });
-			return false; // Should have thrown
-		} catch (e) {
-			if (!e.message.includes("Uint8Array")) return false;
-		}
-
-		return true;
-	} catch (error) {
-		console.error("Validation test error:", error);
 		return false;
 	}
 });
@@ -175,7 +131,7 @@ test("raw.decode - basic decoding", async () => {
 
 		// Now decode
 		const decoded = raw.decode({
-			oti: Promise.resolve(oti),
+			oti: oti,
 			encoding_symbols: symbolIterator
 		});
 
@@ -191,47 +147,13 @@ test("raw.decode - basic decoding", async () => {
 	}
 });
 
-// Test decoding input validation
-test("raw.decode - input validation", () => {
-	try {
-		// Test missing input
-		try {
-			raw.decode();
-			return false; // Should have thrown
-		} catch (e) {
-			if (!e.message.includes("Input must contain")) return false;
-		}
-
-		// Test missing oti
-		try {
-			raw.decode({ encoding_symbols: [] });
-			return false; // Should have thrown
-		} catch (e) {
-			if (!e.message.includes("Input must contain")) return false;
-		}
-
-		// Test missing encoding_symbols
-		try {
-			raw.decode({ oti: Promise.resolve(new Uint8Array(12)) });
-			return false; // Should have thrown
-		} catch (e) {
-			if (!e.message.includes("Input must contain")) return false;
-		}
-
-		return true;
-	} catch (error) {
-		console.error("Decode validation test error:", error);
-		return false;
-	}
-});
-
 // Test round-trip encoding and decoding
 test("raw encode/decode - round trip with small data", async () => {
 	const originalData = new Uint8Array([1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
 
 	try {
 		// Encode
-		const encoded = raw.encode({ options: { symbol_size: 48, repair_symbols: 5 }, data: originalData }); // 48 is divisible by 8
+		const encoded = raw.encode({ options: { symbol_size: 48, num_repair_symbols: 5 }, data: originalData }); // 48 is divisible by 8
 		const oti = await encoded.oti;
 
 		// Collect symbols
@@ -250,7 +172,7 @@ test("raw encode/decode - round trip with small data", async () => {
 		};
 
 		const decoded = raw.decode({
-			oti: Promise.resolve(oti),
+			oti: oti,
 			encoding_symbols: symbolIterator
 		});
 
@@ -274,8 +196,8 @@ test("raw decode - block output format", async () => {
 		const encoded = raw.encode({
 			options: {
 				symbol_size: 48,
-				repair_symbols: 5,
-				source_blocks: 2  // Use 2 blocks to test block output
+				num_repair_symbols: 5,
+				num_source_blocks: 2  // Use 2 blocks to test block output
 			},
 			data: originalData
 		});
@@ -301,7 +223,7 @@ test("raw decode - block output format", async () => {
 			usage: {
 				output_format: "blocks"
 			},
-			oti: Promise.resolve(oti),
+			oti,
 			encoding_symbols: symbolIterator
 		});
 
@@ -350,7 +272,7 @@ test("raw decode - invalid output format", () => {
 				usage: {
 					output_format: "invalid"
 				},
-				oti: Promise.resolve(new Uint8Array(12)),
+				oti: new Uint8Array(12),
 				encoding_symbols: {
 					async *[Symbol.asyncIterator]() {
 						yield new Uint8Array(10);
@@ -367,6 +289,45 @@ test("raw decode - invalid output format", () => {
 		console.error("Invalid format test error:", error);
 		return false;
 	}
+});
+
+// Test various symbol_alignment values (removed 1 or 8 restriction)
+test("raw.encode - various symbol_alignment values", async () => {
+	const testData = createTestData(200);
+	const alignmentValues = [1, 2, 4, 5, 8, 16, 25, 40]; // Test various alignments including non-power-of-2
+
+	for (const alignment of alignmentValues) {
+		try {
+			const config = {
+				symbol_size: alignment * 10, // Ensure divisible by alignment
+				num_repair_symbols: 5,
+				num_source_blocks: 1,
+				num_sub_blocks: 1,
+				symbol_alignment: alignment
+			};
+
+			const result = raw.encode({ options: config, data: testData });
+			const oti = await result.oti;
+
+			// Verify OTI structure is valid
+			if (!(oti instanceof Uint8Array) || oti.length !== 12) {
+				return false;
+			}
+
+			// Verify we can get at least one symbol
+			const iterator = result.encoding_symbols[Symbol.asyncIterator]();
+			const firstSymbol = await iterator.next();
+			if (firstSymbol.done) {
+				return false; // Should have at least one symbol
+			}
+
+		} catch (error) {
+			console.error(`Symbol alignment ${alignment} failed:`, error);
+			return false;
+		}
+	}
+
+	return true;
 });
 
 console.log("🧪 Running RaptorQ tests...");

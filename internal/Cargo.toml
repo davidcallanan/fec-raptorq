@@ -7,6 +7,10 @@ edition = "2021"
 name = "raptorq"
 path = "src/main.rs"
 
+[features]
+# Enable verbose logging to stderr (disabled by default)
+verbose-logging = []
+
 [dependencies]
 raptorq = { path = "./raptorq", features = ["std", "serde_support"] }
 clap = { version = "4.0", features = ["derive"] }

@@ -3,6 +3,14 @@ use std::io::{self, Read, Write};
 use anyhow::{Result, Context, bail};
 use raptorq::{Encoder, Decoder, EncodingPacket, ObjectTransmissionInformation};
 
+// Conditional logging macro - only logs when "verbose-logging" feature is enabled
+macro_rules! log_info {
+    ($($arg:tt)*) => {
+        #[cfg(feature = "verbose-logging")]
+        eprintln!($($arg)*);
+    };
+}
+
 /// RFC6330 compliant RaptorQ encoder/decoder
 /// 
 /// This implementation properly handles:
@@ -42,7 +50,7 @@ struct Args {
     #[arg(long, default_value = "1", help = "Number of sub-blocks per source block - ENCODING ONLY")]
     sub_blocks: u16,
     
-    #[arg(long, default_value = "8", help = "Symbol alignment in bytes (1 or 8) - ENCODING ONLY")]
+    #[arg(long, default_value = "8", help = "Symbol alignment in bytes (must be > 0) - ENCODING ONLY")]
     symbol_alignment: u8,
 }
 
@@ -55,8 +63,8 @@ fn main() -> Result<()> {
     }
     
     // Validate symbol alignment
-    if args.symbol_alignment != 1 && args.symbol_alignment != 8 {
-        bail!("Symbol alignment must be 1 or 8");
+    if args.symbol_alignment == 0 {
+        bail!("Symbol alignment must be greater than 0");
     }
     
     // Validate symbol size alignment
@@ -99,14 +107,14 @@ fn encode_data(args: &Args) -> Result<()> {
     io::stdout().write_all(&oti)
         .context("Failed to write OTI header to stdout")?;
     
-    eprintln!("Starting streaming encode - outputting packets as they're generated...");
+    log_info!("Starting streaming encode - outputting packets as they're generated...");
     
     // Stream encoded packets as they're generated (no buffering)
     let mut total_packets = 0;
     let mut stdout = io::stdout();
     
     for (block_idx, block_encoder) in encoder.get_block_encoders().iter().enumerate() {
-        eprintln!("Processing source block {} of {}", block_idx + 1, encoder.get_block_encoders().len());
+        log_info!("Processing source block {} of {}", block_idx + 1, encoder.get_block_encoders().len());
         
         // Stream source packets immediately
         let source_packets = block_encoder.source_packets();
@@ -134,16 +142,16 @@ fn encode_data(args: &Args) -> Result<()> {
             }
             
             repair_start += batch_size;
-            eprintln!("  → Generated {} repair packets so far", repair_start);
+            log_info!("  → Generated {} repair packets so far", repair_start);
         }
         
         // Ensure packets are written immediately
         stdout.flush().context("Failed to flush stdout")?;
-        eprintln!("✓ Completed source block {} ({} packets)", block_idx + 1, 
+        log_info!("✓ Completed source block {} ({} packets)", block_idx + 1, 
             source_packet_count + args.repair_symbols as usize);
     }
     
-    eprintln!("✓ Successfully encoded {} bytes into {} packets (streamed output)", 
+    log_info!("✓ Successfully encoded {} bytes into {} packets (streamed output)", 
         input_data.len(), total_packets);
     Ok(())
 }
@@ -159,19 +167,19 @@ fn decode_data(args: &Args) -> Result<()> {
     // Parse ObjectTransmissionInformation (OTI) from stream
     let config = ObjectTransmissionInformation::deserialize(&oti_buffer);
     
-    eprintln!("Using OTI from stream:");
-    eprintln!("  transfer_length: {} bytes", config.transfer_length());
-    eprintln!("  symbol_size: {} bytes", config.symbol_size());
-    eprintln!("  source_blocks: {}", config.source_blocks());
-    eprintln!("  sub_blocks: {}", config.sub_blocks());
-    eprintln!("  symbol_alignment: {}", config.symbol_alignment());
+    log_info!("Using OTI from stream:");
+    log_info!("  transfer_length: {} bytes", config.transfer_length());
+    log_info!("  symbol_size: {} bytes", config.symbol_size());
+    log_info!("  source_blocks: {}", config.source_blocks());
+    log_info!("  sub_blocks: {}", config.sub_blocks());
+    log_info!("  symbol_alignment: {}", config.symbol_alignment());
     
     // Calculate packet size
     // Each packet = PayloadId (4 bytes) + symbol data (symbol_size bytes)
     let packet_size = 4 + config.symbol_size() as usize;
-    eprintln!("Each packet is {} bytes (4 byte PayloadId + {} byte symbol)", 
+    log_info!("Each packet is {} bytes (4 byte PayloadId + {} byte symbol)", 
         packet_size, config.symbol_size());
-    eprintln!("Output format: blocks (always - SBN-prefixed for concurrency)");
+    log_info!("Output format: blocks (always - SBN-prefixed for concurrency)");
     
     use std::collections::HashMap;
     
@@ -183,8 +191,8 @@ fn decode_data(args: &Args) -> Result<()> {
     let total_symbols_per_block = ((config.transfer_length() + config.symbol_size() as u64 - 1) 
         / config.symbol_size() as u64) / num_source_blocks as u64;
     
-    eprintln!("Starting block-by-block decoding for {} source blocks...", num_source_blocks);
-    eprintln!("Expected ~{} symbols per block", total_symbols_per_block);
+    log_info!("Starting block-by-block decoding for {} source blocks...", num_source_blocks);
+    log_info!("Expected ~{} symbols per block", total_symbols_per_block);
     
     let mut packets_processed = 0;
     let mut packet_buffer = vec![0u8; packet_size];
@@ -201,7 +209,7 @@ fn decode_data(args: &Args) -> Result<()> {
                 let payload_id = packet.payload_id();
                 let sbn = payload_id.source_block_number();
                 
-                eprintln!("Received packet {} for source block {} ({} bytes)", 
+                log_info!("Received packet {} for source block {} ({} bytes)", 
                     packets_processed, sbn, packet_size);
                 
                 // Create decoder for this source block if not exists
@@ -222,7 +230,7 @@ fn decode_data(args: &Args) -> Result<()> {
                     );
                     
                     block_decoders.insert(sbn, Decoder::new(block_config));
-                    eprintln!("  → Created decoder for source block {} (expected length: {} bytes)", 
+                    log_info!("  → Created decoder for source block {} (expected length: {} bytes)", 
                         sbn, block_transfer_length);
                 }
                 
@@ -233,9 +241,14 @@ fn decode_data(args: &Args) -> Result<()> {
                             // Block successfully decoded!
                             blocks_completed += 1;
                             
-                            // Output: SBN (1 byte) + decoded data
-                            let mut output = Vec::with_capacity(1 + decoded_data.len());
+                            // Output: SBN (1 byte) + Block Size (4 bytes, little-endian) + decoded data
+                            let mut output = Vec::with_capacity(1 + 4 + decoded_data.len());
                             output.push(sbn);
+                            
+                            // Write block size as 4-byte little-endian u32
+                            let block_size = decoded_data.len() as u32;
+                            output.extend_from_slice(&block_size.to_le_bytes());
+                            
                             output.extend_from_slice(&decoded_data);
                             
                             io::stdout().write_all(&output)
@@ -243,7 +256,7 @@ fn decode_data(args: &Args) -> Result<()> {
                             io::stdout().flush()
                                 .context("Failed to flush stdout")?;
                                 
-                            eprintln!("✓ Successfully decoded source block {} ({} bytes) using {} total packets", 
+                            log_info!("✓ Successfully decoded source block {} ({} bytes) using {} total packets", 
                                 sbn, decoded_data.len(), packets_processed);
                             
                             // Remove decoder as it's no longer needed
@@ -251,20 +264,20 @@ fn decode_data(args: &Args) -> Result<()> {
                             
                             // Check if all blocks are completed
                             if blocks_completed == num_source_blocks {
-                                eprintln!("✓ All {} source blocks completed!", num_source_blocks);
+                                log_info!("✓ All {} source blocks completed!", num_source_blocks);
                                 return Ok(());
                             }
                         }
                         None => {
                             // Need more packets for this block
-                            eprintln!("  → Block {} needs more packets...", sbn);
+                            log_info!("  → Block {} needs more packets...", sbn);
                         }
                     }
                 }
             }
             Err(ref e) if e.kind() == io::ErrorKind::UnexpectedEof => {
                 // End of stream - no more packets available
-                eprintln!("End of stream reached after {} packets", packets_processed);
+                log_info!("End of stream reached after {} packets", packets_processed);
                 if blocks_completed < num_source_blocks {
                     bail!("Failed to decode all blocks: only {} of {} blocks completed", 
                         blocks_completed, num_source_blocks);

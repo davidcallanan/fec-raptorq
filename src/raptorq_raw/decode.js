@@ -1,36 +1,42 @@
 
 import { spawn } from "child_process";
+import { throw_error } from "../uoe/throw_error.js";
+import { error_user_payload } from "../uoe/error_user_payload.js";
 
-/**
- * Decodes data using RaptorQ forward error correction
- * @param {Object} input - Input object containing OTI and encoding symbols
- * @param {Promise<Uint8Array>} input.oti - Promise that resolves to the 12-byte OTI header
- * @param {AsyncIterable<Uint8Array>} input.encoding_symbols - Async iterable of encoded symbols
- * @param {Object} [input.usage] - Usage configuration
- * @param {string} [input.usage.output_format="combined"] - Output format: "combined" or "blocks"
- * @returns {Promise<Uint8Array>|Object} Promise that resolves to the decoded data (combined) or object with blocks async iterable
- */
-export const decode = ({ binary_path }, input) => {
-	if (!input || !input.oti || !input.encoding_symbols) {
-		throw new TypeError('Input must contain oti (Promise<Uint8Array>) and encoding_symbols (AsyncIterable<Uint8Array>)');
+export const decode = ({ binary_path }, { usage, oti, encoding_symbols }) => {
+	usage ??= {};
+	usage.output_format ??= "combined";
+
+	if (false
+		|| !(oti instanceof Uint8Array)
+		|| oti.length !== 12
+	) {
+		throw_error(error_user_payload("Provided oti must be 12-byte Uint8Array."));
 	}
 
-	const usage = input.usage || {};
-	const output_format = usage.output_format || 'combined';
-
-	if (output_format !== 'combined' && output_format !== 'blocks') {
-		throw new Error('output_format must be "combined" or "blocks"');
+	if (false
+		|| !encoding_symbols
+		|| typeof encoding_symbols[Symbol.asyncIterator] !== "function"
+	) {
+		throw_error(error_user_payload("Provided encoding_symbols must be iterable."));
 	}
 
-	if (output_format === 'blocks') {
-		return _decode_to_blocks(input, binary_path);
+	if (false
+		|| !["combined", "blocks"].includes(usage.output_format)
+	) {
+		throw_error(error_user_payload("Provided output_format must be \"combined\" or \"blocks\"."));
+	}
+
+	if (usage.output_format === "blocks") {
+		return _decode_to_blocks({ oti, encoding_symbols }, binary_path);
 	} else {
-		return _decode_to_combined(input, binary_path);
+		return _decode_to_combined({ oti, encoding_symbols }, binary_path);
 	}
 };
 
 /**
  * Internal method for decoding to individual blocks (pass-through from binary)
+ * Binary outputs blocks with format: [SBN: 1 byte][Block Size: 4 bytes, little-endian][Block Data: variable]
  */
 const _decode_to_blocks = (input, binary_path) => {
 	const process = spawn(binary_path, ['--decode'], {
@@ -80,46 +86,44 @@ const _decode_to_blocks = (input, binary_path) => {
 	let buffer = [];
 
 	process.stdout.on('data', (chunk) => {
-		// Binary always outputs SBN-prefixed blocks: [SBN: 1 byte][Block Data: variable]
+		// Binary now outputs blocks with format: [SBN: 1 byte][Block Size: 4 bytes, little-endian][Block Data: variable]
 		buffer.push(...chunk);
 
-		// Process complete blocks - we need to carefully parse since we don't know block sizes in advance
-		while (buffer.length > 0) {
-			// We'll assume each stdout data chunk contains complete blocks
-			// This is a reasonable assumption given the binary's flush behavior
-			let offset = 0;
-			const chunk_data = new Uint8Array(chunk);
+		// Process complete blocks - we now know exact block sizes from the size header
+		while (buffer.length >= 5) { // Need at least SBN + size header
+			// Read SBN (1 byte)
+			const sbn = buffer[0];
 
-			while (offset < chunk_data.length) {
-				if (offset >= chunk_data.length) break;
+			// Read block size (4 bytes, little-endian)
+			const block_size = buffer[1] | (buffer[2] << 8) | (buffer[3] << 16) | (buffer[4] << 24);
 
-				const sbn = chunk_data[offset];
-				offset += 1;
-
-				// For now, assume the rest of this chunk is the block data
-				// In a more robust implementation, you'd need to know block sizes
-				const block_data = chunk_data.slice(offset);
-				const block = {
-					sbn: sbn,
-					data: block_data
-				};
-
-				if (iterator_waiting) {
-					block_resolver(block);
-					iterator_waiting = false;
-					block_promise = new Promise((resolve, reject) => {
-						block_resolver = resolve;
-						block_rejector = reject;
-					});
-				} else {
-					block_queue.push(block);
-				}
-
-				break; // Process one block per chunk for simplicity
+			// Check if we have the complete block
+			const total_block_length = 5 + block_size; // 1 (SBN) + 4 (size) + block_size (data)
+			if (buffer.length < total_block_length) {
+				break; // Wait for more data
 			}
 
-			buffer = []; // Reset buffer after processing chunk
-			break;
+			// Extract block data
+			const block_data = new Uint8Array(buffer.slice(5, total_block_length));
+			const block = {
+				sbn: sbn,
+				data: block_data
+			};
+
+			// Send block to iterator
+			if (iterator_waiting) {
+				block_resolver(block);
+				iterator_waiting = false;
+				block_promise = new Promise((resolve, reject) => {
+					block_resolver = resolve;
+					block_rejector = reject;
+				});
+			} else {
+				block_queue.push(block);
+			}
+
+			// Remove processed block from buffer
+			buffer.splice(0, total_block_length);
 		}
 	});
 

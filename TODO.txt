@@ -1,0 +1,2 @@
+- remove Rust logging (maybe put behind flag)
+- add d.ts

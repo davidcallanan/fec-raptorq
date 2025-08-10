@@ -79,7 +79,7 @@ See detailed encoding and decoding usage below.
 
 ## Encoding
 
-The `raptorq_raw.encode` takes in an object.
+The `raptorq_raw.encode` function takes in an object.
 
 The `data` field is mandatory and contains the raw bytes to be encoded.
 
@@ -89,11 +89,11 @@ The `options` field is optional and configures the encoding process.
 // Encode using custom options
 
 const options = {
-	repair_symbols: 15,   // Number of repair symbols per source block
-	symbol_size: 1400,    // (T) Size of each symbol in bytes (max: 65535); must be multiple of symbol_alignment
-	source_blocks: 1,     // (Z) Number of source blocks (max: 255)
-	sub_blocks: 1,        // (N) Number of sub-blocks per source block (max: 65535)
-	symbol_alignment: 8,  // (Al) Symbol alignment in bytes (must be 1 or 8)
+	symbol_size: 1400,        // (T) Size of each symbol in bytes (max: 65535); must be multiple of symbol_alignment
+	num_repair_symbols: 15,   // Number of repair symbols per source block
+	num_source_blocks: 1,     // (Z) Number of source blocks (max: 255)
+	num_sub_blocks: 1,        // (N) Number of sub-blocks per source block (max: 65535)
+	symbol_alignment: 8,      // (Al) Symbol alignment in bytes (min: 1, max: 255)
 };
 
 const result = raptorq_raw.encode({
@@ -108,7 +108,7 @@ Changing `data.length` or `options` will likely result in a change to the OTI.
 
 ## Decoding
 
-`raptorq_raw.decode` takes in an object.
+The `raptorq_raw.decode` function takes in an object.
 
 The `encoding_symbols` field is mandatory and must be an async iterable of RFC 6330-compliant encoding symbols.
 
@@ -162,20 +162,20 @@ It is recommended to configure each parameter to your use-case and not rely on d
   - Should match your network's MTU for optimal transmission.
   - Must be a multiple of `symbol_alignment`.
 
-- **`repair_symbols`**
+- **`num_repair_symbols`**
   - Number of repair symbols generated per source block.
   - Default: `15`.
   - Higher values provide more redundancy but increase overhead.
   - This parameter is not part of the OTI as RaptorQ is designed as a fountain code.
 
-- **`source_blocks`**
+- **`num_source_blocks`**
   - **RFC 6330 (Z)** - Number of source blocks to divide the data into.
   - Default: `1`.
   - Range: `1` to `255`.
   - Use default for small files, increase for very large files to manage memory usage and concurrency.
   - Each source block is processed independently for parallelization. (Todo: source blocks are streamed).
 
-- **`sub_blocks`**
+- **`num_sub_blocks`**
   - **RFC 6330 (N)** - Number of sub-blocks per source block.
   - Default: `1`.
   - Range: `1` to `65535`.
@@ -183,9 +183,10 @@ It is recommended to configure each parameter to your use-case and not rely on d
 - **`symbol_alignment`**
   - **RFC 6330 (Al)** - Symbol alignment in bytes.
   - Default: `8`.
-  - Valid values: `1` or `8`
-  - Use `8` for optimal performance on most systems.
-  - Use `1` only for special cases where memory is extremely constrained.
+  - Range: `1` to `255`
+  - Common values: `1`, `4`, `8`
+  - Use `8` for optimal performance on most 64-bit systems.
+  - Use `4` for optimal performance on 32-bit systems.
   - `symbol_size` must be divisible by this value.
   
 Note that the transfer length (**RFC 6330 (F)**) is determined by the length of `data`.
@@ -203,7 +204,7 @@ The OTI header contains:
 - **Symbol Size (T)** - Size of each symbol
 - **Number of Source Blocks (Z)** - How data was divided
 - **Number of Sub-Blocks (N)** - Sub-block configuration  
-- **Symbol Alignment (Al)** - Memory alignment used
+- **Symbol Alignment (Al)** - Symbol alignment
 
 The decoder automatically uses these parameters to reconstruct the original data once sufficient encoding symbols are received. According to RFC 6330, you need at least K source symbols plus some overhead symbols to successfully decode, where K is calculated from the transfer length and symbol size.
 
@@ -214,11 +215,10 @@ See `CONTRIBUTING.md`.
 ## Future Plans
 
 - Improve performance.
-- Add block streaming to improve concurrency.
 - Add wrapper API that provides FEC Payload ID customization to reduce overhead:
   - Add disable SBN option. This would be useful if the developer has their own notion of SBNs or chunks files manually using hashes, saving 1 byte per FEC Payload ID.
   - Assess possibility to expose custom ESI size option. Are ESIs generated sequentially?
-- Add wrapper API that helps with OSI negotation and exposes simpler interface.
+- Add wrapper API that helps with OTI negotation and exposes simpler interface.
 - Explore how sub-blocks work and determine if any supplementary functionality would be useful.
 - Add Windows ARM support.
 - Add Web WASM support.

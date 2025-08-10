@@ -51,13 +51,13 @@ cat input.bin | ./raptorq --encode \
 
 Decoding is automatic - all parameters are read from the OTI header.
 
-**The decoder always outputs blocks individually, each prefixed with its Source Block Number (SBN) for concurrency.**
+**The decoder always outputs blocks individually, each prefixed with its Source Block Number (SBN) and block size for precise parsing.**
 
 ```bash
-# Decoding - outputs blocks with SBN prefix
+# Decoding - outputs blocks with SBN prefix and size
 cat encoded.bin | ./raptorq --decode > decoded_blocks.bin
 
-# Each output block format: [SBN: 1 byte][Block Data: variable length]
+# Each output block format: [SBN: 1 byte][Block Size: 4 bytes, little-endian][Block Data: variable length]
 ```
 
 ### Round-trip Example
@@ -81,7 +81,7 @@ diff input.bin output.bin  # Should show no differences
 
 **Mode Selection (Required):**
 - `--encode`: Encode data from stdin
-- `--decode`: Decode data from stdin (always outputs SBN-prefixed blocks for concurrency)
+- `--decode`: Decode data from stdin (always outputs SBN-prefixed blocks with size headers for precise parsing)
 
 **Encoding Parameters** (only used during encoding, ignored during decoding):
 - `--symbol-size <BYTES>`: RFC6330 Symbol Size **T** - Size of each symbol in bytes (default: 1400, max: 65535)
