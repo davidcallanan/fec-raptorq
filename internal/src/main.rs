@@ -148,7 +148,7 @@ fn encode_data(args: &Args) -> Result<()> {
     Ok(())
 }
 
-fn decode_data(_args: &Args) -> Result<()> {
+fn decode_data(args: &Args) -> Result<()> {
     let mut stdin = io::stdin();
     
     // First, read the OTI header (12 bytes) from stdin
@@ -171,48 +171,105 @@ fn decode_data(_args: &Args) -> Result<()> {
     let packet_size = 4 + config.symbol_size() as usize;
     eprintln!("Each packet is {} bytes (4 byte PayloadId + {} byte symbol)", 
         packet_size, config.symbol_size());
+    eprintln!("Output format: blocks (always - SBN-prefixed for concurrency)");
     
-    // Create decoder
-    let mut decoder = Decoder::new(config);
+    use std::collections::HashMap;
     
-    // Gradually read and process packets as they arrive from stdin
+    // Create a decoder for each source block
+    let num_source_blocks = config.source_blocks() as usize;
+    let mut block_decoders: HashMap<u8, Decoder> = HashMap::new();
+    
+    // Calculate expected block size for each source block
+    let total_symbols_per_block = ((config.transfer_length() + config.symbol_size() as u64 - 1) 
+        / config.symbol_size() as u64) / num_source_blocks as u64;
+    
+    eprintln!("Starting block-by-block decoding for {} source blocks...", num_source_blocks);
+    eprintln!("Expected ~{} symbols per block", total_symbols_per_block);
+    
     let mut packets_processed = 0;
     let mut packet_buffer = vec![0u8; packet_size];
-    
-    eprintln!("Starting gradual decoding - processing packets as they arrive...");
+    let mut blocks_completed = 0;
     
     loop {
         // Try to read exactly one packet from stdin
         match stdin.read_exact(&mut packet_buffer) {
             Ok(()) => {
-                // Successfully read a full packet
                 packets_processed += 1;
-                eprintln!("Received packet {} ({} bytes)", packets_processed, packet_size);
                 
-                // Deserialize the packet
+                // Deserialize the packet to get SBN
                 let packet = EncodingPacket::deserialize(&packet_buffer);
+                let payload_id = packet.payload_id();
+                let sbn = payload_id.source_block_number();
                 
-                // Attempt to decode with this new packet
-                match decoder.decode(packet) {
-                    Some(decoded_data) => {
-                        // Successfully decoded!
-                        io::stdout().write_all(&decoded_data)
-                            .context("Failed to write decoded data to stdout")?;
-                        eprintln!("✓ Successfully decoded {} bytes using {} packets", 
-                            decoded_data.len(), packets_processed);
-                        return Ok(());
-                    }
-                    None => {
-                        // Need more packets, continue reading
-                        eprintln!("  → Decoding not yet possible, need more packets...");
+                eprintln!("Received packet {} for source block {} ({} bytes)", 
+                    packets_processed, sbn, packet_size);
+                
+                // Create decoder for this source block if not exists
+                if !block_decoders.contains_key(&sbn) {
+                    // Calculate transfer length for this specific source block
+                    let remaining_length = config.transfer_length();
+                    let block_transfer_length = std::cmp::min(
+                        remaining_length - (sbn as u64 * total_symbols_per_block * config.symbol_size() as u64),
+                        total_symbols_per_block * config.symbol_size() as u64
+                    );
+                    
+                    let block_config = ObjectTransmissionInformation::new(
+                        block_transfer_length,
+                        config.symbol_size(),
+                        1, // Single source block for this decoder
+                        config.sub_blocks(),
+                        config.symbol_alignment()
+                    );
+                    
+                    block_decoders.insert(sbn, Decoder::new(block_config));
+                    eprintln!("  → Created decoder for source block {} (expected length: {} bytes)", 
+                        sbn, block_transfer_length);
+                }
+                
+                // Try to decode this block
+                if let Some(decoder) = block_decoders.get_mut(&sbn) {
+                    match decoder.decode(packet) {
+                        Some(decoded_data) => {
+                            // Block successfully decoded!
+                            blocks_completed += 1;
+                            
+                            // Output: SBN (1 byte) + decoded data
+                            let mut output = Vec::with_capacity(1 + decoded_data.len());
+                            output.push(sbn);
+                            output.extend_from_slice(&decoded_data);
+                            
+                            io::stdout().write_all(&output)
+                                .context("Failed to write decoded block to stdout")?;
+                            io::stdout().flush()
+                                .context("Failed to flush stdout")?;
+                                
+                            eprintln!("✓ Successfully decoded source block {} ({} bytes) using {} total packets", 
+                                sbn, decoded_data.len(), packets_processed);
+                            
+                            // Remove decoder as it's no longer needed
+                            block_decoders.remove(&sbn);
+                            
+                            // Check if all blocks are completed
+                            if blocks_completed == num_source_blocks {
+                                eprintln!("✓ All {} source blocks completed!", num_source_blocks);
+                                return Ok(());
+                            }
+                        }
+                        None => {
+                            // Need more packets for this block
+                            eprintln!("  → Block {} needs more packets...", sbn);
+                        }
                     }
                 }
             }
             Err(ref e) if e.kind() == io::ErrorKind::UnexpectedEof => {
                 // End of stream - no more packets available
                 eprintln!("End of stream reached after {} packets", packets_processed);
-                bail!("Failed to decode: insufficient packets received (processed {} packets)", 
-                    packets_processed);
+                if blocks_completed < num_source_blocks {
+                    bail!("Failed to decode all blocks: only {} of {} blocks completed", 
+                        blocks_completed, num_source_blocks);
+                }
+                return Ok(());
             }
             Err(e) => {
                 bail!("Failed to read packet {} from stdin: {}", packets_processed + 1, e);

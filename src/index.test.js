@@ -265,4 +265,108 @@ test("raw encode/decode - round trip with small data", async () => {
 	}
 });
 
+// Test block-by-block decoding
+test("raw decode - block output format", async () => {
+	const originalData = createTestData(200);
+
+	try {
+		// Encode the data with multiple source blocks for better testing
+		const encoded = raw.encode({
+			options: {
+				symbol_size: 48,
+				repair_symbols: 5,
+				source_blocks: 2  // Use 2 blocks to test block output
+			},
+			data: originalData
+		});
+
+		// Collect the encoded data
+		const oti = await encoded.oti;
+		const symbols = [];
+		for await (const symbol of encoded.encoding_symbols) {
+			symbols.push(symbol);
+		}
+
+		// Create mock async iterator for symbols
+		const symbolIterator = {
+			async *[Symbol.asyncIterator]() {
+				for (const symbol of symbols) {
+					yield symbol;
+				}
+			}
+		};
+
+		// Decode with block format
+		const decoded = raw.decode({
+			usage: {
+				output_format: "blocks"
+			},
+			oti: Promise.resolve(oti),
+			encoding_symbols: symbolIterator
+		});
+
+		// Verify result has blocks async iterable
+		if (!decoded.blocks || typeof decoded.blocks[Symbol.asyncIterator] !== 'function') {
+			return false;
+		}
+
+		// Collect blocks
+		const blocks = [];
+		for await (const block of decoded.blocks) {
+			if (typeof block.sbn !== 'number' || !(block.data instanceof Uint8Array)) {
+				return false;
+			}
+			blocks.push(block);
+		}
+
+		// Should have received at least one block
+		if (blocks.length === 0) {
+			return false;
+		}
+
+		// Verify block SBNs are valid (0-based)
+		for (const block of blocks) {
+			if (block.sbn < 0 || block.sbn > 255) {
+				return false;
+			}
+		}
+
+		return true;
+
+	} catch (error) {
+		console.error("Block decoding test error:", error);
+		return false;
+	}
+});
+
+// Test invalid output format
+test("raw decode - invalid output format", () => {
+	try {
+		const testData = createTestData(100);
+
+		// This should throw
+		try {
+			raw.decode({
+				usage: {
+					output_format: "invalid"
+				},
+				oti: Promise.resolve(new Uint8Array(12)),
+				encoding_symbols: {
+					async *[Symbol.asyncIterator]() {
+						yield new Uint8Array(10);
+					}
+				}
+			});
+			return false; // Should have thrown
+		} catch (e) {
+			if (!e.message.includes('output_format must be')) return false;
+		}
+
+		return true;
+	} catch (error) {
+		console.error("Invalid format test error:", error);
+		return false;
+	}
+});
+
 console.log("🧪 Running RaptorQ tests...");

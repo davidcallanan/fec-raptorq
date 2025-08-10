@@ -1,12 +1,12 @@
 # RaptorQ CLI Tool
 
-An RFC6330-compliant command-line interface for RaptorQ forward error correction encoding and decoding.
+An RFC 6330-compliant command-line interface for RaptorQ forward error correction encoding and decoding.
 
 ## Usage
 
-This implementation uses RFC6330 Object Transmission Information (OTI). The encoder embeds all parameters in a 12-byte header which is dumped at the beginning of its output, and the decoder reads these parameters via the same 12-byte header.
+This implementation uses RFC 6330 Object Transmission Information (OTI). The encoder embeds all parameters in a 12-byte header which is dumped at the beginning of its output, and the decoder reads these parameters via the same 12-byte header.
 
-**Important**: It is not expected for the header to be treated as part of the encoded bytes, as it is external to the recovery algorithm. Instead, the encoder and decoder must agree on the OTI via an out-of-band mechanism or by using a hardcoded OTI. If an out-of-band mechanism is used for exchanging the OTI, it is the responsibility of the developer to ensure integrity. This process is outside the scope of RFC6330.
+**Important**: It is not expected for the header to be treated as part of the encoded bytes, as it is external to the recovery algorithm. Instead, the encoder and decoder must agree on the OTI via an out-of-band mechanism or by using a hardcoded OTI. If an out-of-band mechanism is used for exchanging the OTI, it is the responsibility of the developer to ensure integrity. This process is outside the scope of RFC 6330.
 
 ### Encoding
 
@@ -49,13 +49,15 @@ cat input.bin | ./raptorq --encode \
 
 ### Decoding
 
-Decoding is automatic - all parameters are read from the OTI header:
+Decoding is automatic - all parameters are read from the OTI header.
+
+**The decoder always outputs blocks individually, each prefixed with its Source Block Number (SBN) for concurrency.**
 
 ```bash
-# Simple decoding - parameters auto-detected from OTI header
-cat encoded.bin | ./raptorq --decode > decoded.bin
+# Decoding - outputs blocks with SBN prefix
+cat encoded.bin | ./raptorq --decode > decoded_blocks.bin
 
-# That's it! No parameters needed for decoding
+# Each output block format: [SBN: 1 byte][Block Data: variable length]
 ```
 
 ### Round-trip Example
@@ -79,7 +81,7 @@ diff input.bin output.bin  # Should show no differences
 
 **Mode Selection (Required):**
 - `--encode`: Encode data from stdin
-- `--decode`: Decode data from stdin (reads all parameters from OTI header)
+- `--decode`: Decode data from stdin (always outputs SBN-prefixed blocks for concurrency)
 
 **Encoding Parameters** (only used during encoding, ignored during decoding):
 - `--symbol-size <BYTES>`: RFC6330 Symbol Size **T** - Size of each symbol in bytes (default: 1400, max: 65535)
@@ -88,7 +90,7 @@ diff input.bin output.bin  # Should show no differences
 - `--sub-blocks <COUNT>`: RFC6330 Number of Sub-Blocks **N** per source block (default: 1, max: 65535)
 - `--symbol-alignment <BYTES>`: RFC6330 Symbol Alignment **Al** in bytes (default: 8, options: 1 or 8)
 
-*Note: RFC6330 Transfer Length **F** is automatically determined from input data size during encoding and stored in the OTI.*
+*Note: RFC 6330 Transfer Length **F** is automatically determined from input data size during encoding and stored in the OTI.*
 
 **Other Options:**
 - `--help`: Show help information
@@ -109,4 +111,4 @@ The **Transfer Length (F)** is automatically determined from input data during e
 - Most parameters have sensible defaults that work well for typical use cases
 - The decoder automatically reads all parameters from the OTI header - no manual specification required
 - Symbol size should be divisible by symbol alignment for optimal performance
-- This tool uses RFC6330 Object Transmission Information (OTI) embedding for full standards compliance
+- This tool uses RFC 6330 Object Transmission Information (OTI) embedding for full standards compliance

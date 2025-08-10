@@ -4,8 +4,6 @@ This npm package exposes `RaptorQ` ([RFC 6330](https://datatracker.ietf.org/doc/
 
 This protocol allows you to add error correction to input data by converting it into a special array of chunks, called "encoding symbols". These encoding symbols can be delivered independently, and extra encoding symbols are generated for redundancy. Once the decoder receives sufficient encoding symbols to reconstruct the original data, the process stops. In a networking context, for instance, you might decide on a one-to-one mapping between encoding symbols and UDP packets.
 
-While this implementation is severely lacking, it is worth noting that there are currently no alternative packages available for Node.js. As such, I welcome any contributions to this package.
-
 ## Supported Targets
 
 ✅ Linux x86_64
@@ -40,9 +38,9 @@ npm install @davidcal/fec-raptorq
 yarn add @davidcal/fec-raptorq
 ```
 
-## Usage
+## Basic Usage
 
-The `raptorq_raw` export exposes an RFC6330-compliant interface.
+The `raptorq_raw` export exposes an RFC 6330-compliant interface.
 
 I plan on supplementing this with higher-level interfaces in future, so as to enhance the developer experience and offer further useful functionality.
 
@@ -61,21 +59,6 @@ for await (const chunk of result.encoding_symbols) {
 	console.log(chunk);
 }
 
-// Encode using custom options
-
-const options = {
-	symbol_size: 1400,    // (T) Size of each symbol in bytes (max: 65535); must be multiple of symbol_alignment
-	repair_symbols: 15,   // Number of repair symbols per source block
-	source_blocks: 1,     // (Z) Number of source blocks (max: 255)
-	sub_blocks: 1,        // (N) Number of sub-blocks per source block (max: 65535)
-	symbol_alignment: 8,  // (Al) Symbol alignment in bytes (must be 1 or 8)
-};
-
-const result = raptorq_raw.encode({
-	options,
-	data,
-});
-
 // Decode using OTI
 
 const oti = ...;
@@ -92,9 +75,83 @@ const data = await raptorq_raw.decode({
 });
 ```
 
+See detailed encoding and decoding usage below.
+
+## Encoding
+
+The `raptorq_raw.encode` takes in an object.
+
+The `data` field is mandatory and contains the raw bytes to be encoded.
+
+The `options` field is optional and configures the encoding process.
+
+```
+// Encode using custom options
+
+const options = {
+	repair_symbols: 15,   // Number of repair symbols per source block
+	symbol_size: 1400,    // (T) Size of each symbol in bytes (max: 65535); must be multiple of symbol_alignment
+	source_blocks: 1,     // (Z) Number of source blocks (max: 255)
+	sub_blocks: 1,        // (N) Number of sub-blocks per source block (max: 65535)
+	symbol_alignment: 8,  // (Al) Symbol alignment in bytes (must be 1 or 8)
+};
+
+const result = raptorq_raw.encode({
+	options,
+	data,
+});
+```
+
+See [Encoding Options](#encoding-options) for details.
+
+Changing `data.length` or `options` will likely result in a change to the OTI.
+
+## Decoding
+
+`raptorq_raw.decode` takes in an object.
+
+The `encoding_symbols` field is mandatory and must be an async iterable of RFC 6330-compliant encoding symbols.
+
+The `oti` field is mandatory and must be an RFC 6330-compliant 12-byte decoding configuration. See [Decoding Options](#decoding-options).
+
+The `usage` field is optional and configures the programmatic interface.
+
+`usage.output_format: "combined"` (default)
+
+```
+const data = await raptorq_raw.decode({
+  usage: {
+    output_format: "combined", // default
+  },
+	oti,
+	encoding_symbols,
+});
+
+// In this case, `data` is the same bytes as during encoding.
+```
+
+`usage.output_format: "blocks"`
+
+```
+const result = raptorq_raw.decode({
+  usage: {
+    output_format: "blocks",
+  },
+	oti,
+	encoding_symbols,
+});
+
+// Blocks may not be given sequentially, fostering concurrency
+
+for await (const block of result.blocks) {
+  console.log(block.sbn); // source block number (between 0 and 255).
+  console.log(block.data); // actual bytes.
+}
+```
+
 ## Encoding Options
 
-The `raptorq_raw.encode` function accepts an `options` configuration object with the following RFC6330-compliant options:
+The `raptorq_raw.encode` function accepts an `options` configuration object with the following RFC 6330-compliant options:
 
 It is recommended to configure each parameter to your use-case and not rely on defaults.
 
@@ -139,7 +196,7 @@ There are no manual decoding options, as decoding is configured via the OTI.
 
 You must supply a 12-byte RFC 6330 OTI (Object Transmission Information) when decoding. The OTI must match that obtained from the encoding process.
 
-**Important**: It is not expected for the developer to treat the OTI bytes as part of the encoded bytes, as it is external to the recovery algorithm. Instead, the encoder and decoder must agree on the OTI via an out-of-band mechanism or by using a hardcoded OTI. If an out-of-band mechanism is used for exchanging the OTI, it is the responsibility of the developer to ensure integrity. This process is outside the scope of RFC6330.
+**Important**: It is not expected for the developer to treat the OTI bytes as part of the encoded bytes, as it is external to the recovery algorithm. Instead, the encoder and decoder must agree on the OTI via an out-of-band mechanism or by using a hardcoded OTI. If an out-of-band mechanism is used for exchanging the OTI, it is the responsibility of the developer to ensure integrity. This process is outside the scope of RFC 6330.
 
 The OTI header contains:
 - **Transfer Length (F)** - Original data size
@@ -159,7 +216,7 @@ See `CONTRIBUTING.md`.
 - Improve performance.
 - Add block streaming to improve concurrency.
 - Add wrapper API that provides FEC Payload ID customization to reduce overhead:
-  - Add disable SBN option.
+  - Add disable SBN option. This would be useful if the developer has their own notion of SBNs or chunks files manually using hashes, saving 1 byte per FEC Payload ID.
   - Assess possibility to expose custom ESI size option. Are ESIs generated sequentially?
 - Add wrapper API that helps with OSI negotation and exposes simpler interface.
 - Explore how sub-blocks work and determine if any supplementary functionality would be useful.
@@ -169,7 +226,8 @@ See `CONTRIBUTING.md`.
 - Add better error handling.
 - Remove vibe-coding slop.
 - Wrap promises with `unsuspended_promise`.
-- Finish reading RFC6330 to see if anything else interesting can be added.
+- Finish reading RFC 6330 to see if anything else interesting can be added.
+- Right now I am using an in-memory approach, I might look at enabling a file-based approach in future.
 
 ## Acknowledgements
 
