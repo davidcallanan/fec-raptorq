@@ -174,3 +174,7 @@ See `CONTRIBUTING.md`.
 ## Acknowledgements
 
 This package wraps [a lovely Rust library](https://github.com/cberner/raptorq). Without this library, my package wouldn't exist. See `/internal/README.md` for details.
+
+## License
+
+See `LICENSE` and `/internal/raptorq/LICENSE`.

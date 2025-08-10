@@ -1,4 +1,4 @@
-# Contributing to @davidcallanan/fec-raptorq
+# Contributing to @davidcal/fec-raptorq
 
 Note: This file is AI-generated, **do not rely on it**.
 
@@ -435,7 +435,7 @@ When making performance changes:
 
 ```javascript
 // ✅ Good: Complete, runnable example
-import { raptorq_raw } from "@davidcallanan/fec-raptorq";
+import { raptorq_raw } from "@davidcal/fec-raptorq";
 
 const data = Buffer.from("Hello, World!");
 const options = {
@@ -561,4 +561,4 @@ echo "test data" | ./internal/bin/x86_64-unknown-linux-gnu/raptorq --encode | ./
 - CLI docs: `internal/CLI.md`
 - Package config: `package.json`
 
-Thank you for contributing to @davidcallanan/fec-raptorq! 🚀
+Thank you for contributing to @davidcal/fec-raptorq! 🚀
