@@ -1,0 +1,3 @@
+[submodule "src/uoe"]
+	path = src/uoe
+	url = https://github.com/davidcallanan/uoe

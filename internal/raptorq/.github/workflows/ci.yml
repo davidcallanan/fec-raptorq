@@ -1,0 +1,68 @@
+name: CI
+
+on:
+  pull_request:
+  push: # required for actions/cache to work
+    branches:
+      - master
+
+jobs:
+  ci:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: ["ubuntu-latest", "macos-latest"]
+
+    steps:
+      - uses: actions/checkout@v2
+      - name: Cache
+        id: rust-cache
+        uses: actions/cache@v3
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.toml', '.github/workflows/*.yml', 'rust-toolchain') }}
+
+      - name: Install Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: "3.10"
+
+      - uses: actions-rs/toolchain@v1
+        with:
+          components: rustfmt, clippy
+
+      - name: Install cargo-deny
+        if: steps.rust-cache.outputs.cache-hit != 'true'
+        run: rustup run --install 1.85 cargo install --force --version 0.16.2 cargo-deny --locked
+
+      - name: Install just
+        if: steps.rust-cache.outputs.cache-hit != 'true'
+        run: rustup run --install 1.85 cargo install --force --version 1.36.0 just --locked
+
+      - name: Clippy
+        run: cargo clippy --all --all-targets -- -Dwarnings
+
+      - name: Format
+        run: cargo fmt --all -- --check
+
+      - name: Run tests
+        run: just test
+
+      - name: Compile benchmarks
+        run: cargo bench --features benchmarking --no-run
+
+      - name: Run tests (no-std)
+        run: cargo test --no-default-features
+
+      - name: Run CPython wrapper tests
+        run: |
+          python3 -m venv venv
+          source venv/bin/activate
+          pip3 install --upgrade pip
+          pip3 install maturin
+          just test_py

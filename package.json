@@ -1,0 +1,26 @@
+{
+	"name": "@davidcal/fec-raptorq",
+	"version": "1.0.0",
+	"description": "Node.js wrapper for RaptorQ forward error correction",
+	"type": "module",
+	"main": "src/index.js",
+	"engines": {
+		"node": ">=12.0.0"
+	},
+	"scripts": {
+		"test": "node src/index.test.js"
+	},
+	"keywords": [
+		"raptorq",
+		"forward-error-correction",
+		"fec",
+		"rfc6330",
+		"encoding",
+		"decoding"
+	],
+	"author": "",
+	"license": "MIT",
+	"dependencies": {
+		"unsuspended-promise": "^1.0.1"
+	}
+}

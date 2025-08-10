@@ -1,0 +1,57 @@
+[package]
+name = "raptorq"
+description = "RaptorQ (RFC6330)"
+license = "Apache-2.0"
+homepage = "https://github.com/cberner/raptorq"
+repository = "https://github.com/cberner/raptorq"
+readme = "README.md"
+version = "2.0.0"
+edition = "2024"
+authors = ["Christopher Berner <christopherberner@gmail.com>"]
+
+[lib]
+crate-type = ["lib"]
+
+[dependencies]
+serde = {version = "1.0.102", features=["std", "derive"], optional = true}
+pyo3 = {version = "0.24.1", features=["extension-module", "abi3-py37"], optional = true }
+
+[dev-dependencies]
+criterion = "0.5"
+primal = "0.3"
+rand = "0.9"
+threadpool = "1.7"
+
+[[bench]]
+name = "codec_benchmark"
+harness = false
+required-features = ["benchmarking"]
+
+[[bench]]
+name = "matrix_sparsity"
+harness = false
+required-features = ["benchmarking"]
+
+[[bench]]
+name = "encode_benchmark"
+harness = false
+
+[[bench]]
+name = "decode_benchmark"
+harness = false
+
+[[example]]
+name = "main"
+required-features = ["std"]
+
+[profile.release]
+debug = true
+lto = false
+
+[features]
+default = ["std"]
+
+benchmarking = ["std"]
+python = ["pyo3", "std"]
+serde_support = ["serde", "std"]
+std = []

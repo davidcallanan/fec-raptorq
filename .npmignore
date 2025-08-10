@@ -1,0 +1,6 @@
+/src/*.test.js
+/internal/*
+!/internal/bin/
+/node_modules/
+.git/
+.gitignore
