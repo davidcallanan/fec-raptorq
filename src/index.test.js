@@ -1,6 +1,6 @@
 import { test } from "./uoe/test.js";
 import { compare_bytes } from "./uoe/compare_bytes.js";
-import { raptorq_raw as raw } from "./index.js";
+import { raptorq_raw as raw, raptorq_suppa as suppa } from "./index.js";
 
 // Helper function to create test data
 function createTestData(size = 1000) {
@@ -22,7 +22,7 @@ test("raw.encode - basic encoding returns oti and symbols", async () => {
 	const result = raw.encode({ options: {}, data: testData });
 
 	// Check that result has the expected structure
-	if (!result.oti || !result.encoding_symbols) {
+	if (!result.oti || !result.encoding_packets) {
 		return false;
 	}
 
@@ -31,8 +31,8 @@ test("raw.encode - basic encoding returns oti and symbols", async () => {
 		return false;
 	}
 
-	// Check that encoding_symbols is an async iterable
-	if (typeof result.encoding_symbols[Symbol.asyncIterator] !== 'function') {
+	// Check that encoding_packets is an async iterable
+	if (typeof result.encoding_packets[Symbol.asyncIterator] !== 'function') {
 		return false;
 	}
 
@@ -43,21 +43,26 @@ test("raw.encode - basic encoding returns oti and symbols", async () => {
 			return false;
 		}
 
-		// Verify we can collect at least one symbol
+		// Verify we can collect all symbols
 		let symbolCount = 0;
-		console.log("Test: Starting to iterate over encoding symbols...");
-		for await (const symbol of result.encoding_symbols) {
+		console.log("Test: Starting to iterate over encoding packets...");
+
+		// Calculate expected number of symbols
+		// For 100 bytes with default symbol_size (1400), we expect 1 source symbol + 15 repair symbols = 16 total
+		const expectedSymbolCount = Math.ceil(testData.length / 1400) + 15; // source symbols + repair symbols
+
+		for await (const symbol of result.encoding_packets) {
 			console.log(`Test: Received symbol ${symbolCount + 1}, type: ${typeof symbol}, instance: ${symbol instanceof Uint8Array}, length: ${symbol?.length}`);
 			if (!(symbol instanceof Uint8Array)) {
 				console.log("Test: Symbol is not Uint8Array, failing test");
 				return false;
 			}
 			symbolCount++;
-			// Only check first few symbols to avoid long test
-			if (symbolCount >= 3) {
-				console.log("Test: Got 3 symbols, breaking");
-				break;
-			}
+		}
+		// Verify we got the expected number of symbols
+		if (symbolCount !== expectedSymbolCount) {
+			console.log(`Test: Symbol count mismatch - got ${symbolCount}, expected ${expectedSymbolCount}`);
+			return false;
 		}
 		console.log(`Test: Collected ${symbolCount} symbols total`);
 
@@ -88,14 +93,25 @@ test("raw.encode - custom configuration", async () => {
 			return false;
 		}
 
-		// Verify we can get symbols
+		// Verify we can get all symbols
 		let symbolCount = 0;
-		for await (const symbol of result.encoding_symbols) {
-			symbolCount++;		// Expected symbol size is symbol_size + 4 (for PayloadId)
+
+		// Calculate expected number of symbols based on configuration
+		// For 500 bytes with symbol_size 800: 1 source symbol + 10 repair symbols = 11 total
+		const expectedSymbolCount = Math.ceil(testData.length / config.symbol_size) + config.num_repair_symbols;
+
+		for await (const symbol of result.encoding_packets) {
+			symbolCount++;
+			// Expected symbol size is symbol_size + 4 (for PayloadId)
 			if (symbol.length !== config.symbol_size + 4) {
 				return false;
 			}
-			if (symbolCount >= 2) break; // Just check a few
+		}
+
+		// Verify we got the expected number of symbols
+		if (symbolCount !== expectedSymbolCount) {
+			console.log(`Custom config test: Symbol count mismatch - got ${symbolCount}, expected ${expectedSymbolCount}`);
+			return false;
 		}
 
 		return symbolCount > 0;
@@ -116,7 +132,7 @@ test("raw.decode - basic decoding", async () => {
 		// Collect the encoded data
 		const oti = await encoded.oti;
 		const symbols = [];
-		for await (const symbol of encoded.encoding_symbols) {
+		for await (const symbol of encoded.encoding_packets) {
 			symbols.push(symbol);
 		}
 
@@ -132,7 +148,7 @@ test("raw.decode - basic decoding", async () => {
 		// Now decode
 		const decoded = raw.decode({
 			oti: oti,
-			encoding_symbols: symbolIterator
+			encoding_packets: symbolIterator
 		});
 
 		// Wait for the decoded data
@@ -158,7 +174,7 @@ test("raw encode/decode - round trip with small data", async () => {
 
 		// Collect symbols
 		const symbols = [];
-		for await (const symbol of encoded.encoding_symbols) {
+		for await (const symbol of encoded.encoding_packets) {
 			symbols.push(symbol);
 		}
 
@@ -173,7 +189,7 @@ test("raw encode/decode - round trip with small data", async () => {
 
 		const decoded = raw.decode({
 			oti: oti,
-			encoding_symbols: symbolIterator
+			encoding_packets: symbolIterator
 		});
 
 		// Wait for decoded data and verify
@@ -205,7 +221,7 @@ test("raw decode - block output format", async () => {
 		// Collect the encoded data
 		const oti = await encoded.oti;
 		const symbols = [];
-		for await (const symbol of encoded.encoding_symbols) {
+		for await (const symbol of encoded.encoding_packets) {
 			symbols.push(symbol);
 		}
 
@@ -224,7 +240,7 @@ test("raw decode - block output format", async () => {
 				output_format: "blocks"
 			},
 			oti,
-			encoding_symbols: symbolIterator
+			encoding_packets: symbolIterator
 		});
 
 		// Verify result has blocks async iterable
@@ -273,7 +289,7 @@ test("raw decode - invalid output format", () => {
 					output_format: "invalid"
 				},
 				oti: new Uint8Array(12),
-				encoding_symbols: {
+				encoding_packets: {
 					async *[Symbol.asyncIterator]() {
 						yield new Uint8Array(10);
 					}
@@ -315,7 +331,7 @@ test("raw.encode - various symbol_alignment values", async () => {
 			}
 
 			// Verify we can get at least one symbol
-			const iterator = result.encoding_symbols[Symbol.asyncIterator]();
+			const iterator = result.encoding_packets[Symbol.asyncIterator]();
 			const firstSymbol = await iterator.next();
 			if (firstSymbol.done) {
 				return false; // Should have at least one symbol
@@ -331,3 +347,143 @@ test("raw.encode - various symbol_alignment values", async () => {
 });
 
 console.log("🧪 Running RaptorQ tests...");
+
+// Test raptorq_suppa basic functionality with strategy.sbn enabled
+test("suppa.encode/decode - strategy.sbn mode enable", async () => {
+	const test_data = createTestData(100);
+
+	try {
+		// Encode with enable mode (should behave like raptorq_raw)
+		const encoded = suppa.encode({
+			options: { symbol_size: 104 },
+			data: test_data,
+			strategy: { sbn: { mode: "enable" } }
+		});
+
+		const oti = await encoded.oti;
+		const symbols = [];
+		for await (const symbol of encoded.encoding_packets) {
+			symbols.push(symbol);
+		}
+
+		// Create async iterator for symbols
+		const symbol_iterator = {
+			async *[Symbol.asyncIterator]() {
+				for (const symbol of symbols) {
+					yield symbol;
+				}
+			}
+		};
+
+		// Decode with enable mode
+		const decoded = await suppa.decode({
+			oti: oti,
+			encoding_packets: symbol_iterator,
+			strategy: { sbn: { mode: "enable" } }
+		});
+
+		return arraysEqual(test_data, decoded);
+	} catch (error) {
+		console.error("Suppa enable mode test error:", error);
+		return false;
+	}
+});
+
+// Test raptorq_suppa with strategy.sbn override
+test("suppa.encode/decode - strategy.sbn mode override", async () => {
+	const test_data = createTestData(100);
+
+	try {
+		// Encode with override mode
+		const encoded = suppa.encode({
+			options: {
+				symbol_size: 104,
+				num_source_blocks: 1, // Must be 1 for override mode
+			},
+			data: test_data,
+			strategy: { sbn: { mode: "override", value: 42 } }
+		});
+
+		const oti = await encoded.oti;
+		const symbols = [];
+		for await (const symbol of encoded.encoding_packets) {
+			symbols.push(symbol);
+			// Verify that SBN (first byte) is overridden to 42
+			if (symbol[0] !== 42) {
+				console.error(`Expected SBN to be 42, got ${symbol[0]}`);
+				return false;
+			}
+		}
+
+		// Create async iterator for symbols
+		const symbol_iterator = {
+			async *[Symbol.asyncIterator]() {
+				for (const symbol of symbols) {
+					yield symbol;
+				}
+			}
+		};
+
+		// Decode with override mode
+		const decoded = await suppa.decode({
+			oti: oti,
+			encoding_packets: symbol_iterator,
+			strategy: { sbn: { mode: "override", value: 42 } }
+		});
+
+		return arraysEqual(test_data, decoded);
+	} catch (error) {
+		console.error("Suppa override mode test error:", error);
+		return false;
+	}
+});
+
+// Test raptorq_suppa with strategy.sbn disable
+test("suppa.encode/decode - strategy.sbn mode disable", async () => {
+	const test_data = createTestData(100);
+
+	try {
+		// Encode with disable mode
+		const encoded = suppa.encode({
+			options: {
+				symbol_size: 104,
+				num_source_blocks: 1, // Must be 1 for disable mode
+			},
+			data: test_data,
+			strategy: { sbn: { mode: "disable" } }
+		});
+
+		const oti = await encoded.oti;
+		const symbols = [];
+		for await (const symbol of encoded.encoding_packets) {
+			symbols.push(symbol);
+			// Verify that symbol is 1 byte shorter (SBN removed)
+			// Expected: symbol_size (104) + ESI (3 bytes) = 107 bytes
+			if (symbol.length !== 107) {
+				console.error(`Expected symbol length to be 107, got ${symbol.length}`);
+				return false;
+			}
+		}
+
+		// Create async iterator for symbols
+		const symbol_iterator = {
+			async *[Symbol.asyncIterator]() {
+				for (const symbol of symbols) {
+					yield symbol;
+				}
+			}
+		};
+
+		// Decode with disable mode
+		const decoded = await suppa.decode({
+			oti: oti,
+			encoding_packets: symbol_iterator,
+			strategy: { sbn: { mode: "disable" } }
+		});
+
+		return arraysEqual(test_data, decoded);
+	} catch (error) {
+		console.error("Suppa disable mode test error:", error);
+		return false;
+	}
+});

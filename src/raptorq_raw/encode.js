@@ -229,6 +229,6 @@ export const encode = ({ binary_path }, { options, data }) => {
 
 	return {
 		oti: oti_promise,
-		encoding_symbols: symbols
+		encoding_packets: symbols
 	};
 };

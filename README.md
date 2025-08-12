@@ -42,50 +42,9 @@ yarn add @davidcal/fec-raptorq
 
 The `raptorq_raw` export exposes an RFC 6330-compliant interface.
 
-I plan on supplementing this with higher-level interfaces in future, so as to enhance the developer experience and offer further useful functionality.
-
 ```javascript
 import { raptorq_raw } from "@davidcal/fec-raptorq";
 
-// Encode using default options
-
-const data = new Uint8Array(...);
-
-const result = raptorq_raw.encode({ data });
-
-const oti = await result.oti;
-
-for await (const chunk of result.encoding_symbols) {
-	console.log(chunk);
-}
-
-// Decode using OTI
-
-const oti = ...;
-
-const encoding_symbols = (async function* () {
-  for await (const chunk of some_data_source) {
-	yield chunk;
-  }
-})();
-
-const data = await raptorq_raw.decode({
-	oti,
-	encoding_symbols,
-});
-```
-
-See detailed encoding and decoding usage below.
-
-## Encoding
-
-The `raptorq_raw.encode` function takes in an object.
-
-The `data` field is mandatory and contains the raw bytes to be encoded.
-
-The `options` field is optional and configures the encoding process.
-
-```
 // Encode using custom options
 
 const options = {
@@ -96,117 +55,42 @@ const options = {
 	symbol_alignment: 8,      // (Al) Symbol alignment in bytes (min: 1, max: 255)
 };
 
-const result = raptorq_raw.encode({
-	options,
-	data,
-});
-```
+const data = new Uint8Array(...);
 
-See [Encoding Options](#encoding-options) for details.
+const result = raptorq_raw.encode({ options, data });
 
-Changing `data.length` or `options` will likely result in a change to the OTI.
+const oti = await result.oti;
 
-## Decoding
-
-The `raptorq_raw.decode` function takes in an object.
-
-The `encoding_symbols` field is mandatory and must be an async iterable of RFC 6330-compliant encoding symbols.
-
-The `oti` field is mandatory and must be an RFC 6330-compliant 12-byte decoding configuration. See [Decoding Options](#decoding-options).
-
-The `usage` field is optional and configures the programmatic interface.
-
-`usage.output_format: "combined"` (default)
-
-```
-const data = await raptorq_raw.decode({
-  usage: {
-    output_format: "combined", // default
-  },
-	oti,
-	encoding_symbols,
-});
-
-// In this case, `data` is the same bytes as during encoding.
-```
-
-`usage.output_format: "blocks"`
-
-```
-const result = raptorq_raw.decode({
-  usage: {
-    output_format: "blocks",
-  },
-	oti,
-	encoding_symbols,
-});
-
-// Blocks may not be given sequentially, fostering concurrency
-
-for await (const block of result.blocks) {
-  console.log(block.sbn); // source block number (between 0 and 255).
-  console.log(block.data); // actual bytes.
+for await (const encoding_symbol of result.encoding_symbols) {
+	console.log(encoding_symbol);
 }
+
+// Decode using OTI
+
+const oti = ...;
+
+const encoding_symbols = (async function* () {
+  for await (const encoding_symbol of some_data_source) {
+	  yield encoding_symbol;
+  }
+})();
+
+const data = await raptorq_raw.decode({
+	oti,
+	encoding_symbols,
+});
 ```
 
-## Encoding Options
+See documentation below for detailed encoding and decoding usage.
 
-The `raptorq_raw.encode` function accepts an `options` configuration object with the following RFC 6330-compliant options:
+## Documentation
 
-It is recommended to configure each parameter to your use-case and not rely on defaults.
+The raw RaptorQ interface is supplemented with higher-level interfaces that enhance the developer experience and offer further useful functionality.
 
-- **`symbol_size`**
-  - **RFC 6330 (T)** - Size of each symbol in bytes.
-  - Default: `1440`.
-  - Range: `1` to `65535`.
-  - Should match your network's MTU for optimal transmission.
-  - Must be a multiple of `symbol_alignment`.
+See the relevant documentation page for the interface you are interested in using:
 
-- **`num_repair_symbols`**
-  - Number of repair symbols generated per source block.
-  - Default: `15`.
-  - Higher values provide more redundancy but increase overhead.
-  - This parameter is not part of the OTI as RaptorQ is designed as a fountain code.
-
-- **`num_source_blocks`**
-  - **RFC 6330 (Z)** - Number of source blocks to divide the data into.
-  - Default: `1`.
-  - Range: `1` to `255`.
-  - Use default for small files, increase for very large files to manage memory usage and concurrency.
-  - Each source block is processed independently for parallelization. (Todo: source blocks are streamed).
-
-- **`num_sub_blocks`**
-  - **RFC 6330 (N)** - Number of sub-blocks per source block.
-  - Default: `1`.
-  - Range: `1` to `65535`.
-
-- **`symbol_alignment`**
-  - **RFC 6330 (Al)** - Symbol alignment in bytes.
-  - Default: `8`.
-  - Range: `1` to `255`
-  - Common values: `1`, `4`, `8`
-  - Use `8` for optimal performance on most 64-bit systems.
-  - Use `4` for optimal performance on 32-bit systems.
-  - `symbol_size` must be divisible by this value.
-  
-Note that the transfer length (**RFC 6330 (F)**) is determined by the length of `data`.
-
-## Decoding Options
-
-There are no manual decoding options, as decoding is configured via the OTI.
-
-You must supply a 12-byte RFC 6330 OTI (Object Transmission Information) when decoding. The OTI must match that obtained from the encoding process.
-
-**Important**: It is not expected for the developer to treat the OTI bytes as part of the encoded bytes, as it is external to the recovery algorithm. Instead, the encoder and decoder must agree on the OTI via an out-of-band mechanism or by using a hardcoded OTI. If an out-of-band mechanism is used for exchanging the OTI, it is the responsibility of the developer to ensure integrity. This process is outside the scope of RFC 6330.
-
-The OTI header contains:
-- **Transfer Length (F)** - Original data size
-- **Symbol Size (T)** - Size of each symbol
-- **Number of Source Blocks (Z)** - How data was divided
-- **Number of Sub-Blocks (N)** - Sub-block configuration  
-- **Symbol Alignment (Al)** - Symbol alignment
-
-The decoder automatically uses these parameters to reconstruct the original data once sufficient encoding symbols are received. According to RFC 6330, you need at least K source symbols plus some overhead symbols to successfully decode, where K is calculated from the transfer length and symbol size.
+- [`raptorq_raw`](docs/raptorq_raw.md) - Raw RFC 6330-compliant interface with no additional functionality.
+- [`raptorq_suppa`](docs/raptorq_suppa.md) - Wrapper interface that provides better pre-negotiated strategy options, giving the programmer more control and simplifying the decoding process.
 
 ## Contributing
 
@@ -228,6 +112,7 @@ See `CONTRIBUTING.md`.
 - Wrap promises with `unsuspended_promise`.
 - Finish reading RFC 6330 to see if anything else interesting can be added.
 - Right now I am using an in-memory approach, I might look at enabling a file-based approach in future.
+- Prevent backlogs using backpressure mechanism.
 
 ## Acknowledgements
 
@@ -235,4 +120,4 @@ This package wraps [a lovely Rust library](https://github.com/cberner/raptorq). 
 
 ## License
 
-See `LICENSE` and `/internal/raptorq/LICENSE`.
+See `/LICENSE` and `/internal/raptorq/LICENSE`.

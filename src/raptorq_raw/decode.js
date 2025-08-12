@@ -2,52 +2,14 @@
 import { spawn } from "child_process";
 import { throw_error } from "../uoe/throw_error.js";
 import { error_user_payload } from "../uoe/error_user_payload.js";
+import { create_promise } from "../uoe/create_promise.js";
 
-export const decode = ({ binary_path }, { usage, oti, encoding_symbols }) => {
-	usage ??= {};
-	usage.output_format ??= "combined";
-
-	if (false
-		|| !(oti instanceof Uint8Array)
-		|| oti.length !== 12
-	) {
-		throw_error(error_user_payload("Provided oti must be 12-byte Uint8Array."));
-	}
-
-	if (false
-		|| !encoding_symbols
-		|| typeof encoding_symbols[Symbol.asyncIterator] !== "function"
-	) {
-		throw_error(error_user_payload("Provided encoding_symbols must be iterable."));
-	}
-
-	if (false
-		|| !["combined", "blocks"].includes(usage.output_format)
-	) {
-		throw_error(error_user_payload("Provided output_format must be \"combined\" or \"blocks\"."));
-	}
-
-	if (usage.output_format === "blocks") {
-		return _decode_to_blocks({ oti, encoding_symbols }, binary_path);
-	} else {
-		return _decode_to_combined({ oti, encoding_symbols }, binary_path);
-	}
-};
-
-/**
- * Internal method for decoding to individual blocks (pass-through from binary)
- * Binary outputs blocks with format: [SBN: 1 byte][Block Size: 4 bytes, little-endian][Block Data: variable]
- */
-const _decode_to_blocks = (input, binary_path) => {
-	const process = spawn(binary_path, ['--decode'], {
-		stdio: ['pipe', 'pipe', 'pipe']
+const decode_blocks = ({ binary_path }, input) => {
+	const process = spawn(binary_path, ["--decode"], {
+		stdio: ["pipe", "pipe", "pipe"],
 	});
 
-	let block_resolver, block_rejector;
-	let block_promise = new Promise((resolve, reject) => {
-		block_resolver = resolve;
-		block_rejector = reject;
-	});
+	let [block_prom, block_res, block_rej] = create_promise();
 
 	const block_queue = [];
 	let iterator_waiting = false;
@@ -65,15 +27,12 @@ const _decode_to_blocks = (input, binary_path) => {
 				} else {
 					iterator_waiting = true;
 					try {
-						const result = await block_promise;
+						const result = await block_prom;
 						iterator_waiting = false;
 						if (result === null) break; // End of stream
 						yield result;
 						// Create new promise for next block
-						block_promise = new Promise((resolve, reject) => {
-							block_resolver = resolve;
-							block_rejector = reject;
-						});
+						[block_prom, block_res, block_rej] = create_promise();
 					} catch (error) {
 						iterator_waiting = false;
 						throw error;
@@ -112,12 +71,9 @@ const _decode_to_blocks = (input, binary_path) => {
 
 			// Send block to iterator
 			if (iterator_waiting) {
-				block_resolver(block);
+				block_res(block);
 				iterator_waiting = false;
-				block_promise = new Promise((resolve, reject) => {
-					block_resolver = resolve;
-					block_rejector = reject;
-				});
+				[block_prom, block_res, block_rej] = create_promise();
 			} else {
 				block_queue.push(block);
 			}
@@ -130,7 +86,7 @@ const _decode_to_blocks = (input, binary_path) => {
 	process.stdout.on('end', () => {
 		stream_ended = true;
 		if (iterator_waiting) {
-			block_resolver(null); // Signal end of stream
+			block_res(null); // Signal end of stream
 		} else {
 			block_queue.push(null); // Signal end of stream
 		}
@@ -140,23 +96,23 @@ const _decode_to_blocks = (input, binary_path) => {
 		const message = chunk.toString().trim();
 		if (message.toLowerCase().includes('error') || message.toLowerCase().includes('failed')) {
 			const error = new Error(`RaptorQ decoding error: ${message}`);
-			block_rejector(error);
+			block_rej(error);
 		}
 	});
 
 	process.on('error', (error) => {
 		const wrapped_error = new Error(`Failed to spawn RaptorQ process: ${error.message}`);
-		block_rejector(wrapped_error);
+		block_rej(wrapped_error);
 	});
 
 	process.on('close', (code) => {
 		if (code !== 0) {
 			const error = new Error(`RaptorQ process exited with code ${code}`);
-			block_rejector(error);
+			block_rej(error);
 		} else {
 			stream_ended = true;
 			if (iterator_waiting) {
-				block_resolver(null);
+				block_res(null);
 			} else {
 				block_queue.push(null);
 			}
@@ -166,13 +122,13 @@ const _decode_to_blocks = (input, binary_path) => {
 	// Handle the async writing of OTI and symbols
 	(async () => {
 		try {
-			const oti = await input.oti;
+			const oti = input.oti;
 			if (!(oti instanceof Uint8Array) || oti.length !== 12) {
 				throw new Error('OTI must be a 12-byte Uint8Array');
 			}
 			process.stdin.write(oti);
 
-			for await (const symbol of input.encoding_symbols) {
+			for await (const symbol of input.encoding_packets) {
 				if (!(symbol instanceof Uint8Array)) {
 					throw new Error('Each symbol must be a Uint8Array');
 				}
@@ -182,7 +138,7 @@ const _decode_to_blocks = (input, binary_path) => {
 			process.stdin.end();
 		} catch (error) {
 			const wrapped_error = new Error(`Error writing to RaptorQ decoder: ${error.message}`);
-			block_rejector(wrapped_error);
+			block_rej(wrapped_error);
 			process.kill();
 		}
 	})();
@@ -190,14 +146,11 @@ const _decode_to_blocks = (input, binary_path) => {
 	return { blocks };
 };
 
-/**
- * Internal method for decoding to combined output (collects and sorts blocks from binary)
- */
-const _decode_to_combined = (input, binary_path) => {
+const decode_combined = ({ binary_path }, input) => {
 	return new Promise(async (resolve, reject) => {
 		try {
 			// Get blocks from the binary
-			const blocks_result = _decode_to_blocks(input, binary_path);
+			const blocks_result = decode_blocks({ binary_path }, input);
 
 			// Collect all blocks
 			const blocks_map = new Map();
@@ -224,4 +177,35 @@ const _decode_to_combined = (input, binary_path) => {
 			reject(error);
 		}
 	});
+};
+
+export const decode = ({ binary_path }, { usage, oti, encoding_packets }) => {
+	usage ??= {};
+	usage.output_format ??= "combined";
+
+	if (false
+		|| !(oti instanceof Uint8Array)
+		|| oti.length !== 12
+	) {
+		throw_error(error_user_payload("Provided oti must be 12-byte Uint8Array."));
+	}
+
+	if (false
+		|| !encoding_packets
+		|| typeof encoding_packets[Symbol.asyncIterator] !== "function"
+	) {
+		throw_error(error_user_payload("Provided encoding_packets must be iterable."));
+	}
+
+	if (false
+		|| !["combined", "blocks"].includes(usage.output_format)
+	) {
+		throw_error(error_user_payload("Provided output_format must be \"combined\" or \"blocks\"."));
+	}
+
+	if (usage.output_format === "blocks") {
+		return decode_blocks({ binary_path }, { oti, encoding_packets });
+	} else {
+		return decode_combined({ binary_path }, { oti, encoding_packets });
+	}
 };
