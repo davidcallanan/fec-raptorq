@@ -61,23 +61,23 @@ const result = raptorq_raw.encode({ options, data });
 
 const oti = await result.oti;
 
-for await (const encoding_symbol of result.encoding_symbols) {
-	console.log(encoding_symbol);
+for await (const encoding_packet of result.encoding_packets) {
+	console.log(encoding_packet);
 }
 
 // Decode using OTI
 
 const oti = ...;
 
-const encoding_symbols = (async function* () {
-  for await (const encoding_symbol of some_data_source) {
-	  yield encoding_symbol;
+const encoding_packets = (async function* () {
+  for await (const encoding_packet of some_data_source) {
+	  yield encoding_packet;
   }
 })();
 
 const data = await raptorq_raw.decode({
 	oti,
-	encoding_symbols,
+	encoding_packets,
 });
 ```
 

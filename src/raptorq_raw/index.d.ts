@@ -21,7 +21,7 @@ export interface EncodingSymbol {
 
 export interface EncodeResult {
 	oti: Promise<Uint8Array>;
-	encoding_symbols: AsyncIterable<EncodingSymbol>;
+	encoding_packets: AsyncIterable<EncodingSymbol>;
 }
 
 export interface DecodeUsage {
@@ -31,7 +31,7 @@ export interface DecodeUsage {
 export interface DecodeInput {
 	usage?: DecodeUsage;
 	oti: Uint8Array;
-	encoding_symbols: AsyncIterable<EncodingSymbol>;
+	encoding_packets: AsyncIterable<EncodingSymbol>;
 }
 
 export interface DecodedBlock {

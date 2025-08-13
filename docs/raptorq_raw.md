@@ -1,6 +1,6 @@
 # `raptorq_raw`
 
-We recommend you spend a few hours studying the [original RFC 6330 document](https://datatracker.ietf.org/doc/html/rfc6330) to bring about a better understanding of how this interface works.
+It is recommended that you spend a few hours studying the [original RFC 6330 document](https://datatracker.ietf.org/doc/html/rfc6330) to bring about a better understanding of how this interface works.
 
 ## Encode
 
@@ -64,12 +64,12 @@ It is recommended that you configure each parameter to your use-case and not rel
   - `symbol_size` must be divisible by this value.
   - Present in the outputted `oti`.
   
-You do not have to explicitly provide the **RFC 6330 (F)** "transfer length". This is determined by the length of `data`.
+You do not have to explicitly provide the **RFC 6330 (F)** "transfer length", as this is determined by `data.length`.
 
 ## Decode
 
 ```
-const result = raptorq_raw.encode({ usage, oti, encoding_packets });
+const result = raptorq_raw.decode({ usage, oti, encoding_packets });
 ```
 
 The form of `result` can vary depending on `usage`.

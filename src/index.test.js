@@ -348,16 +348,16 @@ test("raw.encode - various symbol_alignment values", async () => {
 
 console.log("🧪 Running RaptorQ tests...");
 
-// Test raptorq_suppa basic functionality with strategy.sbn enabled
-test("suppa.encode/decode - strategy.sbn mode enable", async () => {
+// Test raptorq_suppa basic functionality with strategy.sbn default (behaves like old enable mode)
+test("suppa.encode/decode - strategy.sbn default", async () => {
 	const test_data = createTestData(100);
 
 	try {
-		// Encode with enable mode (should behave like raptorq_raw)
+		// Encode with default strategy (should behave like raptorq_raw)
 		const encoded = suppa.encode({
 			options: { symbol_size: 104 },
 			data: test_data,
-			strategy: { sbn: { mode: "enable" } }
+			strategy: {} // Use all defaults
 		});
 
 		const oti = await encoded.oti;
@@ -375,33 +375,44 @@ test("suppa.encode/decode - strategy.sbn mode enable", async () => {
 			}
 		};
 
-		// Decode with enable mode
+		// Decode with default strategy
 		const decoded = await suppa.decode({
 			oti: oti,
 			encoding_packets: symbol_iterator,
-			strategy: { sbn: { mode: "enable" } }
+			strategy: {} // Use all defaults
 		});
 
 		return arraysEqual(test_data, decoded);
 	} catch (error) {
-		console.error("Suppa enable mode test error:", error);
+		console.error("Suppa default strategy test error:", error);
 		return false;
 	}
 });
 
-// Test raptorq_suppa with strategy.sbn override
-test("suppa.encode/decode - strategy.sbn mode override", async () => {
+// Test raptorq_suppa with strategy.sbn custom remap (equivalent to old override)
+test("suppa.encode/decode - strategy.sbn custom remap", async () => {
 	const test_data = createTestData(100);
 
 	try {
-		// Encode with override mode
+		// Encode with custom SBN remap that overrides SBN to constant value
+		const strategy = {
+			sbn: {
+				max_external_bits: 8,
+				max_internal_value: 0, // Only allow 1 source block (internal value 0)
+				remap: {
+					to_internal: (_external) => 0, // Always map to internal 0
+					to_external: (_internal) => 42, // Always output 42 externally
+				},
+			},
+		};
+
 		const encoded = suppa.encode({
 			options: {
 				symbol_size: 104,
-				num_source_blocks: 1, // Must be 1 for override mode
+				num_source_blocks: 1, // Must be 1 since max_internal_value is 0
 			},
 			data: test_data,
-			strategy: { sbn: { mode: "override", value: 42 } }
+			strategy: strategy,
 		});
 
 		const oti = await encoded.oti;
@@ -424,41 +435,49 @@ test("suppa.encode/decode - strategy.sbn mode override", async () => {
 			}
 		};
 
-		// Decode with override mode
+		// Decode with same strategy
 		const decoded = await suppa.decode({
 			oti: oti,
 			encoding_packets: symbol_iterator,
-			strategy: { sbn: { mode: "override", value: 42 } }
+			strategy: strategy,
 		});
 
 		return arraysEqual(test_data, decoded);
 	} catch (error) {
-		console.error("Suppa override mode test error:", error);
+		console.error("Suppa custom remap test error:", error);
 		return false;
 	}
 });
 
-// Test raptorq_suppa with strategy.sbn disable
-test("suppa.encode/decode - strategy.sbn mode disable", async () => {
+// Test raptorq_suppa with strategy.sbn disabled (equivalent to old disable mode)
+test("suppa.encode/decode - strategy.sbn disabled", async () => {
 	const test_data = createTestData(100);
 
 	try {
-		// Encode with disable mode
+		// Encode with SBN disabled (max_external_bits = 0)
+		const strategy = {
+			sbn: {
+				max_external_bits: 0, // Disable SBN output
+				max_internal_value: 0, // Only allow 1 source block
+			},
+		};
+
 		const encoded = suppa.encode({
 			options: {
 				symbol_size: 104,
-				num_source_blocks: 1, // Must be 1 for disable mode
+				num_source_blocks: 1, // Must be 1 since max_internal_value is 0
 			},
 			data: test_data,
-			strategy: { sbn: { mode: "disable" } }
+			strategy: strategy,
 		});
 
 		const oti = await encoded.oti;
 		const symbols = [];
 		for await (const symbol of encoded.encoding_packets) {
 			symbols.push(symbol);
-			// Verify that symbol is 1 byte shorter (SBN removed)
-			// Expected: symbol_size (104) + ESI (3 bytes) = 107 bytes
+			// Verify that symbol is shorter than standard (SBN removed)
+			// Standard packet: SBN (1 byte) + ESI (3 bytes) + symbol_size (104) = 108 bytes
+			// With SBN disabled: ESI (3 bytes) + symbol_size (104) = 107 bytes
 			if (symbol.length !== 107) {
 				console.error(`Expected symbol length to be 107, got ${symbol.length}`);
 				return false;
@@ -474,16 +493,205 @@ test("suppa.encode/decode - strategy.sbn mode disable", async () => {
 			}
 		};
 
-		// Decode with disable mode
+		// Decode with same strategy
 		const decoded = await suppa.decode({
 			oti: oti,
 			encoding_packets: symbol_iterator,
-			strategy: { sbn: { mode: "disable" } }
+			strategy: strategy,
 		});
 
 		return arraysEqual(test_data, decoded);
 	} catch (error) {
-		console.error("Suppa disable mode test error:", error);
+		console.error("Suppa disabled SBN test error:", error);
+		return false;
+	}
+});
+
+// Test raptorq_suppa with strategy.esi custom configuration
+test("suppa.encode/decode - strategy.esi custom bits", async () => {
+	const test_data = createTestData(100);
+
+	try {
+		// Encode with custom ESI configuration (16 bits instead of 24)
+		const strategy = {
+			esi: {
+				max_external_bits: 16,
+				max_internal_value: 65535, // 2^16 - 1
+				remap: {
+					to_internal: (external) => external,
+					to_external: (internal) => internal,
+				},
+			},
+		};
+
+		const encoded = suppa.encode({
+			options: { symbol_size: 104 },
+			data: test_data,
+			strategy: strategy,
+		});
+
+		const oti = await encoded.oti;
+		const symbols = [];
+		for await (const symbol of encoded.encoding_packets) {
+			symbols.push(symbol);
+			// Verify that symbol has correct length:
+			// SBN (1 byte) + ESI (2 bytes instead of 3) + symbol_size (104) = 107 bytes
+			if (symbol.length !== 107) {
+				console.error(`Expected symbol length to be 107, got ${symbol.length}`);
+				return false;
+			}
+		}
+
+		// Create async iterator for symbols
+		const symbol_iterator = {
+			async *[Symbol.asyncIterator]() {
+				for (const symbol of symbols) {
+					yield symbol;
+				}
+			}
+		};
+
+		// Decode with same strategy
+		const decoded = await suppa.decode({
+			oti: oti,
+			encoding_packets: symbol_iterator,
+			strategy: strategy,
+		});
+
+		return arraysEqual(test_data, decoded);
+	} catch (error) {
+		console.error("Suppa ESI custom bits test error:", error);
+		return false;
+	}
+});
+
+// Test raptorq_suppa with both strategy.sbn and strategy.esi customization
+test("suppa.encode/decode - both sbn and esi customized", async () => {
+	const test_data = createTestData(100);
+
+	try {
+		// Encode with both SBN and ESI customized
+		const strategy = {
+			sbn: {
+				max_external_bits: 4, // 4 bits for SBN
+				max_internal_value: 0, // Only 1 source block allowed
+				remap: {
+					to_internal: (_external) => 0,
+					to_external: (_internal) => 7, // Use value 7 in 4-bit field
+				},
+			},
+			esi: {
+				max_external_bits: 12, // 12 bits for ESI
+				max_internal_value: 4095, // 2^12 - 1
+			},
+		};
+
+		const encoded = suppa.encode({
+			options: {
+				symbol_size: 104,
+				num_source_blocks: 1,
+			},
+			data: test_data,
+			strategy: strategy,
+		});
+
+		const oti = await encoded.oti;
+		const symbols = [];
+		for await (const symbol of encoded.encoding_packets) {
+			symbols.push(symbol);
+			// Verify packet structure:
+			// SBN (1 byte, but only 4 bits used) + ESI (2 bytes for 12 bits) + symbol_size (104) = 107 bytes
+			if (symbol.length !== 107) {
+				console.error(`Expected symbol length to be 107, got ${symbol.length}`);
+				return false;
+			}
+
+			// Verify SBN value is remapped correctly (should be 7)
+			const sbn_value = symbol[0] & 0x0F; // Only use lower 4 bits
+			if (sbn_value !== 7) {
+				console.error(`Expected SBN to be 7, got ${sbn_value}`);
+				return false;
+			}
+		}
+
+		// Create async iterator for symbols
+		const symbol_iterator = {
+			async *[Symbol.asyncIterator]() {
+				for (const symbol of symbols) {
+					yield symbol;
+				}
+			}
+		};
+
+		// Decode with same strategy
+		const decoded = await suppa.decode({
+			oti: oti,
+			encoding_packets: symbol_iterator,
+			strategy: strategy,
+		});
+
+		return arraysEqual(test_data, decoded);
+	} catch (error) {
+		console.error("Suppa both SBN and ESI customized test error:", error);
+		return false;
+	}
+});
+
+// Test strategy validation errors
+test("suppa.encode - strategy validation errors", () => {
+	const test_data = createTestData(100);
+
+	try {
+		// Test invalid strategy.sbn.max_external_bits
+		try {
+			suppa.encode({
+				options: { symbol_size: 104 },
+				data: test_data,
+				strategy: { sbn: { max_external_bits: 9 } }, // Invalid: > 8
+			});
+			return false; // Should have thrown
+		} catch (e) {
+			if (!e.message.includes("max_external_bits must be integer between 0 and 8")) {
+				return false;
+			}
+		}
+
+		// Test invalid strategy.esi.max_external_bits
+		try {
+			suppa.encode({
+				options: { symbol_size: 104 },
+				data: test_data,
+				strategy: { esi: { max_external_bits: 1 } }, // Invalid: < 2
+			});
+			return false; // Should have thrown
+		} catch (e) {
+			if (!e.message.includes("max_external_bits must be integer between 2 and 24")) {
+				return false;
+			}
+		}
+
+		// Test invalid strategy.sbn.max_internal_value
+		try {
+			suppa.encode({
+				options: { symbol_size: 104 },
+				data: test_data,
+				strategy: {
+					sbn: {
+						max_external_bits: 4,
+						max_internal_value: 20, // Invalid: > 2^4 - 1 = 15
+					},
+				},
+			});
+			return false; // Should have thrown
+		} catch (e) {
+			if (!e.message.includes("max_internal_value must be integer between 0 and 15")) {
+				return false;
+			}
+		}
+
+		return true;
+	} catch (error) {
+		console.error("Strategy validation test error:", error);
 		return false;
 	}
 });

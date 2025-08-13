@@ -1,5 +1,11 @@
 # Changelog
 
+**1.4.0**
+
+- Breaking: Restructure the `raptorq_suppa` interface's `strategy.sbn` customization.
+- Add `strategy.esi` customization to the `raptorq_suppa` interface.
+- Improve documentation.
+
 **1.3.0**:
 
  - Breaking: Rename `encoding_symbols` to `encoding_blocks`.

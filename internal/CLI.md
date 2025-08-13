@@ -23,7 +23,7 @@ Your application can generate an object along the lines of:
 ```
 {
   "oti": [12]byte;
-  "encoding_symbols": [num_encoding_symbols][symbol_size]byte;
+  "encoding_packets": [num_encoding_symbols][symbol_size]byte;
 }
 ```
 

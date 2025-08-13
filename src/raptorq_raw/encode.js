@@ -1,64 +1,18 @@
 import { spawn } from "child_process";
 import { throw_error } from "../uoe/throw_error.js";
 import { error_user_payload } from "../uoe/error_user_payload.js";
+import { exact_options } from "./exact_options.js";
 
 export const encode = ({ binary_path }, { options, data }) => {
-	options ??= {};
-	options.symbol_size ??= 1400;
-	options.num_repair_symbols ??= 15;
-	options.num_source_blocks ??= 1;
-	options.num_sub_blocks ??= 1;
-	options.symbol_alignment ??= 8;
-
 	if (!(data instanceof Uint8Array)) {
 		throw_error(error_user_payload("Provided data must be Uint8Array."));
 	}
 
-	if (false
-		|| typeof options.symbol_size !== "number"
-		|| !Number.isInteger(options.symbol_size)
-		|| options.symbol_size <= 0
-		|| options.symbol_size > 65535
-	) {
-		throw_error(error_user_payload("Provided symbol_size must be non-zero uint16."));
+	if (data.length < 1) {
+		throw_error(error_user_payload("Provided data must be non-empty."));
 	}
 
-	// repair symbols should have no maximum!! i thought it was a fountain code! is rust package limiting me?
-
-	if (false
-		|| typeof options.num_repair_symbols !== "number"
-		|| !Number.isInteger(options.num_repair_symbols)
-		|| options.num_repair_symbols < 0
-	) {
-		throw_error(error_user_payload("Provided num_repair_symbols must be uint8."));
-	}
-
-	if (false
-		|| typeof options.num_source_blocks !== "number"
-		|| !Number.isInteger(options.num_source_blocks)
-		|| options.num_source_blocks <= 0
-		|| options.num_source_blocks > 255
-	) {
-		throw_error(error_user_payload("Provided num_source_blocks must be non-zero uint8."));
-	}
-
-	if (false
-		|| typeof options.num_sub_blocks !== "number"
-		|| !Number.isInteger(options.num_sub_blocks)
-		|| options.num_sub_blocks <= 0
-		|| options.num_sub_blocks > 65535
-	) {
-		throw_error(error_user_payload("Provided num_sub_blocks must be non-zero uint16."));
-	}
-
-	if (false
-		|| typeof options.symbol_alignment !== "number"
-		|| !Number.isInteger(options.symbol_alignment)
-		|| options.symbol_alignment <= 0
-		|| options.symbol_alignment > 255
-	) {
-		throw_error(error_user_payload("Provided symbol_alignment must be non-zero uint8."));
-	}
+	options = exact_options(options);
 
 	const args = [
 		'--encode',
