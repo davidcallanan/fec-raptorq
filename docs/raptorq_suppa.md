@@ -20,6 +20,7 @@ It will offer methods to:
  - Enable inbuilt error detection:
    - Pass ECC function directly, like sha256.
    - Provide trim parameter.
+ - Customizable trim length which would differ from the transfer length. This trim length would be dumped at the start of the transfer. This is useful in case you don't want transfer length negotiation. It would result in some wasted space but might make sense to your needs. Trimmed after decoding.
 
 # Encode
 
@@ -34,6 +35,12 @@ Arguments:
  - `strategy`: An optional object that configures the encoding and decoding strategy. The same strategy must be used on both the encoding and decoding end, else undefined behaviour is to be expected. See [Strategy](#strategy) for details.
  - `options`: An optional object equivalent to the [`raptorq_raw` Encoding Options](raptorq_raw.md#encoding-options).
  - `data`: A mandatory `Uint8Array` as described in [`raptorq_raw.encode`](raptorq_raw.md#encode).
+ 
+Return value:
+ 
+ - `oti`: A promise to a `Uint8Array` that holds important configuration information required to initiate the decoding process. May be `undefined` in the rare case that no configuration information needs to be exchanged. Its length (or whether it is `undefined` or not) is fixed for a given `strategy`, but the length will never exceed 12 bytes.
+ - `oti_spec`: A promise to the original OTI `Uint8Array` described as `oti` in [`raptorq_raw.encode`](raptorq_raw.md#encode).
+ - `encoding_packets`: An async iterator of `Uint8Array` as described in [`raptorq_raw.encode`](raptorq_raw.md#encode).
 
 # Decode
 
@@ -42,18 +49,22 @@ Arguments:
 const result = raptorq_suppa.decode({ usage, oti, encoding_packets });
 ```
 
-Extends the interface of `raptorq_raw.encode`.
+Extends the interface of `raptorq_raw.decode`.
 
 Arguments:
 
  - `strategy`: An optional object that configures the encoding and decoding strategy. The same strategy must be used on both the encoding and decoding end, else undefined behaviour is to be expected. See [Strategy](#strategy) for details.
- - `usage`: An optional as described in [raptorq_raw.decode](raptorq_raw.md#decode).
- - `oti`: A mandatory `Uint8Array` as described in [raptorq_raw.decode](raptorq_raw.md#decode).
+ - `usage`: An optional object as described in [raptorq_raw.decode](raptorq_raw.md#decode).
+ - `oti`: A mandatory `Uint8Array` as obtained from [`raptorq_suppa.encode`](#encode).
  - `encoding_packets`: A mandatory async iterator of `Uint8Array` as described in [raptorq_raw.decode](raptorq_raw.md#decode).
+
+Return value:
+
+ - As described in [`raptorq_raw.decode`](raptorq_raw.md#decode), with its form depending on the value of `usage`.
 
 Please do not consider negotiating the strategy object in the form of JSON etc. The sole purpose of the strategy object is to reduce what must otherwise be negotiated via OTI and FEC Payload ID. To then negotiate the strategy would be counterproductive. If you want negotiation, use the OTI and pre-arrange the strategy for the purpose of optimizing the OTI.
 
-TODO: Note that the OTI is no longer spec-compliant. You may use `oti_spec` if you need the original `oti`. You can also pass `oti_spec` to bypass `strategy.oti`, although why would you want this?
+Note that the OTI is no longer spec-compliant. You may use `oti_spec` if you need the spec-compliant OTI. Instead, `oti` is configurable for optimization purposes. 
 
 ## Strategy
 
@@ -61,44 +72,52 @@ The contents of `strategy` must be identical for both the encoding and decoding 
 
 ```
 strategy.sbn: {
-	// if max_external_bits is 0, behaves like "mode"="disable" in current implementation
+	// if external_bits is 0, behaves like "mode"="disable" in current implementation
 	// essentially always behaves like "mode"="override" in current implementation (but defaults to overriding with same value, i.e. like "mode"="enable")
-	max_external_bits: 7, // can be set to 0 (default is 8 which is also the maximum)
-	max_internal_value: 2, // must fit within max_external_bits, (default is 255)
+	external_bits: 7, // can be set to 0 (default is 8 which is also the maximum)
+	max_internal_value: 2, // must fit within external_bits, (default is 255)
 	remap: {
 		to_internal: (_unused) => 0, // must return between 0 and max_internal_value.
 		to_external: (_unused) => 23, // cannot be present if max_bits is 0, must fit within max bits.
-		// it is assumed the developer provides to_internal and to_external as polar opposites that reverse each other. the argument is the internal/external to be converted, but the argument is not used if max_external_bits is 0.
-	}, // default for remap is identity function (unless max_external_bits is 0, then default for to_external becomes undefined)!
+		// it is assumed the developer provides to_internal and to_external as polar opposites that reverse each other. the argument is the internal/external to be converted, but the argument is not used if external_bits is 0.
+	}, // default for remap is identity function (unless external_bits is 0, then default for to_external becomes undefined)!
 	// note the encoding options num_source_blocks must now be between 1 and max_internal_value + 1, not 1 and 255
 }
 
 strategy.esi: {
-	max_external_bits: 23, // can be set to between 2 and 24 (default is 24)
-	max_internal_value: 123123, // must fit within max_external_bits (default is 2**24)
+	external_bits: 23, // can be set to between 2 and 24 (default is 24)
+	max_internal_value: 123123, // must fit within external_bits (default is 2**24)
 	remap: {
 		// identical system to sbn
 	}
 	// note we must calculate based on transfer length and symbol size how many symbols there are gonna be
 	// then we must check that this fits into max_internal_value
+	// TODO: consider removing max_internal_value, it's not that important.
+	// actually it's useful to be able to infer this in case the user chooses too high of a symbol count.
+	// however we can just test converting this to external and hoping for success, programmer can return undefined if no mapping is available
 }
 ```
 
 This feature is not yet implemented:
 
+Doesn't have to be linear.
+
 ```
 strategy.oti: {
 	transfer_length: {
-		mode: "include",
-		hardcoded_value: 123,
-		bits: 40 // can be between 1 and 40,
-		value_reamp: // function	
+		external_bits: 40, // can be between 0 and 40,
+		remap: {
+			to_internal,
+			to_external,
+		},
+		// verifies using to_external that transfer length is allowed in options.
 	},
 	symbol_size: {
-		mode: "include",
-		hardcoded_value: 17,
-		bits: 16 // up to 16,
-		value_remap: // function
+		external_bits: 16, // can be between 0 and 16,
+		remap: {
+			to_internal,
+			to_external,
+		},
 	},
 	fec_encoding_id: {
 		mode: "omit", // safe

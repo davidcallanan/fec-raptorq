@@ -397,7 +397,7 @@ test("suppa.encode/decode - strategy.sbn custom remap", async () => {
 		// Encode with custom SBN remap that overrides SBN to constant value
 		const strategy = {
 			sbn: {
-				max_external_bits: 8,
+				external_bits: 8,
 				max_internal_value: 0, // Only allow 1 source block (internal value 0)
 				remap: {
 					to_internal: (_external) => 0, // Always map to internal 0
@@ -454,10 +454,10 @@ test("suppa.encode/decode - strategy.sbn disabled", async () => {
 	const test_data = createTestData(100);
 
 	try {
-		// Encode with SBN disabled (max_external_bits = 0)
+		// Encode with SBN disabled (external_bits = 0)
 		const strategy = {
 			sbn: {
-				max_external_bits: 0, // Disable SBN output
+				external_bits: 0, // Disable SBN output
 				max_internal_value: 0, // Only allow 1 source block
 			},
 		};
@@ -515,7 +515,7 @@ test("suppa.encode/decode - strategy.esi custom bits", async () => {
 		// Encode with custom ESI configuration (16 bits instead of 24)
 		const strategy = {
 			esi: {
-				max_external_bits: 16,
+				external_bits: 16,
 				max_internal_value: 65535, // 2^16 - 1
 				remap: {
 					to_internal: (external) => external,
@@ -573,7 +573,7 @@ test("suppa.encode/decode - both sbn and esi customized", async () => {
 		// Encode with both SBN and ESI customized
 		const strategy = {
 			sbn: {
-				max_external_bits: 4, // 4 bits for SBN
+				external_bits: 4, // 4 bits for SBN
 				max_internal_value: 0, // Only 1 source block allowed
 				remap: {
 					to_internal: (_external) => 0,
@@ -581,7 +581,7 @@ test("suppa.encode/decode - both sbn and esi customized", async () => {
 				},
 			},
 			esi: {
-				max_external_bits: 12, // 12 bits for ESI
+				external_bits: 12, // 12 bits for ESI
 				max_internal_value: 4095, // 2^12 - 1
 			},
 		};
@@ -599,15 +599,17 @@ test("suppa.encode/decode - both sbn and esi customized", async () => {
 		const symbols = [];
 		for await (const symbol of encoded.encoding_packets) {
 			symbols.push(symbol);
-			// Verify packet structure:
-			// SBN (1 byte, but only 4 bits used) + ESI (2 bytes for 12 bits) + symbol_size (104) = 107 bytes
-			if (symbol.length !== 107) {
-				console.error(`Expected symbol length to be 107, got ${symbol.length}`);
+			// Verify packet structure with bit packing:
+			// SBN (4 bits) + ESI (12 bits) = 16 bits = 2 bytes + symbol_size (104) = 106 bytes
+			if (symbol.length !== 106) {
+				console.error(`Expected symbol length to be 106, got ${symbol.length}`);
 				return false;
 			}
 
 			// Verify SBN value is remapped correctly (should be 7)
-			const sbn_value = symbol[0] & 0x0F; // Only use lower 4 bits
+			// With bit packing, SBN is in the first 4 bits of the packed header
+			const packed_header = (symbol[0] << 8) | symbol[1]; // Get first 2 bytes as 16-bit value
+			const sbn_value = (packed_header >> 12) & 0x0F; // Extract upper 4 bits
 			if (sbn_value !== 7) {
 				console.error(`Expected SBN to be 7, got ${sbn_value}`);
 				return false;
@@ -642,30 +644,30 @@ test("suppa.encode - strategy validation errors", () => {
 	const test_data = createTestData(100);
 
 	try {
-		// Test invalid strategy.sbn.max_external_bits
+		// Test invalid strategy.sbn.external_bits
 		try {
 			suppa.encode({
 				options: { symbol_size: 104 },
 				data: test_data,
-				strategy: { sbn: { max_external_bits: 9 } }, // Invalid: > 8
+				strategy: { sbn: { external_bits: 9 } }, // Invalid: > 8
 			});
 			return false; // Should have thrown
 		} catch (e) {
-			if (!e.message.includes("max_external_bits must be integer between 0 and 8")) {
+			if (!e.message.includes("external_bits must be integer between 0 and 8")) {
 				return false;
 			}
 		}
 
-		// Test invalid strategy.esi.max_external_bits
+		// Test invalid strategy.esi.external_bits
 		try {
 			suppa.encode({
 				options: { symbol_size: 104 },
 				data: test_data,
-				strategy: { esi: { max_external_bits: 1 } }, // Invalid: < 2
+				strategy: { esi: { external_bits: 1 } }, // Invalid: < 2
 			});
 			return false; // Should have thrown
 		} catch (e) {
-			if (!e.message.includes("max_external_bits must be integer between 2 and 24")) {
+			if (!e.message.includes("external_bits must be integer between 2 and 24")) {
 				return false;
 			}
 		}
@@ -677,7 +679,7 @@ test("suppa.encode - strategy validation errors", () => {
 				data: test_data,
 				strategy: {
 					sbn: {
-						max_external_bits: 4,
+						external_bits: 4,
 						max_internal_value: 20, // Invalid: > 2^4 - 1 = 15
 					},
 				},

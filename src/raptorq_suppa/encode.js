@@ -1,8 +1,7 @@
 import { throw_error } from "../uoe/throw_error.js";
 import { error_user_payload } from "../uoe/error_user_payload.js";
 import { exact_options } from "../raptorq_raw/exact_options.js";
-
-// TODO: update to use Uint1Array
+import Uint1Array from "../Uint1Array.js";
 
 export const encode = ({ raptorq_raw }, { options, data, strategy }) => {
 	strategy ??= {};
@@ -10,21 +9,21 @@ export const encode = ({ raptorq_raw }, { options, data, strategy }) => {
 	strategy.esi ??= {};
 
 	// Set defaults for strategy.sbn
-	strategy.sbn.max_external_bits ??= 8;
+	strategy.sbn.external_bits ??= 8;
 	strategy.sbn.max_internal_value ??= 255;
 	strategy.sbn.remap ??= {};
 
 	// Validate strategy.sbn
 	if (false
-		|| typeof strategy.sbn.max_external_bits !== "number"
-		|| !Number.isInteger(strategy.sbn.max_external_bits)
-		|| strategy.sbn.max_external_bits < 0
-		|| strategy.sbn.max_external_bits > 8
+		|| typeof strategy.sbn.external_bits !== "number"
+		|| !Number.isInteger(strategy.sbn.external_bits)
+		|| strategy.sbn.external_bits < 0
+		|| strategy.sbn.external_bits > 8
 	) {
-		throw_error(error_user_payload("Provided strategy.sbn.max_external_bits must be integer between 0 and 8."));
+		throw_error(error_user_payload("Provided strategy.sbn.external_bits must be integer between 0 and 8."));
 	}
 
-	const max_sbn_external = (1 << strategy.sbn.max_external_bits) - 1;
+	const max_sbn_external = (1 << strategy.sbn.external_bits) - 1;
 	if (false
 		|| typeof strategy.sbn.max_internal_value !== "number"
 		|| !Number.isInteger(strategy.sbn.max_internal_value)
@@ -35,7 +34,7 @@ export const encode = ({ raptorq_raw }, { options, data, strategy }) => {
 	}
 
 	// Set defaults for remap functions
-	if (strategy.sbn.max_external_bits === 0) {
+	if (strategy.sbn.external_bits === 0) {
 		strategy.sbn.remap.to_internal ??= (_unused) => 0;
 		strategy.sbn.remap.to_external = undefined; // Cannot be present if max_bits is 0
 	} else {
@@ -48,30 +47,30 @@ export const encode = ({ raptorq_raw }, { options, data, strategy }) => {
 		throw_error(error_user_payload("Provided strategy.sbn.remap.to_internal must be a function."));
 	}
 
-	if (strategy.sbn.max_external_bits > 0) {
+	if (strategy.sbn.external_bits > 0) {
 		if (typeof strategy.sbn.remap.to_external !== "function") {
-			throw_error(error_user_payload("Provided strategy.sbn.remap.to_external must be a function when max_external_bits > 0."));
+			throw_error(error_user_payload("Provided strategy.sbn.remap.to_external must be a function when external_bits > 0."));
 		}
 	} else if (strategy.sbn.remap.to_external !== undefined) {
-		throw_error(error_user_payload("Provided strategy.sbn.remap.to_external cannot be present when max_external_bits is 0."));
+		throw_error(error_user_payload("Provided strategy.sbn.remap.to_external cannot be present when external_bits is 0."));
 	}
 
 	// Set defaults for strategy.esi
-	strategy.esi.max_external_bits ??= 24;
+	strategy.esi.external_bits ??= 24;
 	strategy.esi.max_internal_value ??= (1 << 24) - 1;
 	strategy.esi.remap ??= {};
 
 	// Validate strategy.esi
 	if (false
-		|| typeof strategy.esi.max_external_bits !== "number"
-		|| !Number.isInteger(strategy.esi.max_external_bits)
-		|| strategy.esi.max_external_bits < 2
-		|| strategy.esi.max_external_bits > 24
+		|| typeof strategy.esi.external_bits !== "number"
+		|| !Number.isInteger(strategy.esi.external_bits)
+		|| strategy.esi.external_bits < 2
+		|| strategy.esi.external_bits > 24
 	) {
-		throw_error(error_user_payload("Provided strategy.esi.max_external_bits must be integer between 2 and 24."));
+		throw_error(error_user_payload("Provided strategy.esi.external_bits must be integer between 2 and 24."));
 	}
 
-	const max_esi_external = (1 << strategy.esi.max_external_bits) - 1;
+	const max_esi_external = (1 << strategy.esi.external_bits) - 1;
 	if (false
 		|| typeof strategy.esi.max_internal_value !== "number"
 		|| !Number.isInteger(strategy.esi.max_internal_value)
@@ -121,7 +120,7 @@ export const encode = ({ raptorq_raw }, { options, data, strategy }) => {
 		for await (const packet of raw_result.encoding_packets) {
 			let transformed_packet;
 
-			if (strategy.sbn.max_external_bits === 0) {
+			if (strategy.sbn.external_bits === 0) {
 				// Remove SBN (first byte) from the packet - behaves like "disable" mode
 				const payload_without_sbn = packet.slice(1);
 
@@ -137,17 +136,15 @@ export const encode = ({ raptorq_raw }, { options, data, strategy }) => {
 				// Apply ESI remap to get external ESI value
 				const external_esi = strategy.esi.remap.to_external(internal_esi);
 
-				// Convert external ESI back to bytes based on max_external_bits
-				const esi_byte_count = Math.ceil(strategy.esi.max_external_bits / 8);
-				const new_esi_bytes = new Uint8Array(esi_byte_count);
-				for (let i = 0; i < esi_byte_count; i++) {
-					new_esi_bytes[esi_byte_count - 1 - i] = (external_esi >> (i * 8)) & 0xFF;
-				}
+				// Create ESI Uint1Array from BigInt
+				const esi_array = new Uint1Array(BigInt(external_esi), strategy.esi.external_bits);
 
-				// Combine ESI bytes with symbol data
-				transformed_packet = new Uint8Array(new_esi_bytes.length + payload_without_sbn.length - 3);
-				transformed_packet.set(new_esi_bytes, 0);
-				transformed_packet.set(payload_without_sbn.slice(3), new_esi_bytes.length);
+				// Extract packed bytes and combine with symbol data
+				const packed_bytes = esi_array.to_uint8_array();
+				const symbol_data = payload_without_sbn.slice(3);
+				transformed_packet = new Uint8Array(packed_bytes.length + symbol_data.length);
+				transformed_packet.set(packed_bytes, 0);
+				transformed_packet.set(symbol_data, packed_bytes.length);
 			} else {
 				// Transform SBN (first byte) and ESI (next 3 bytes)
 				const sbn_byte = packet[0];
@@ -165,26 +162,21 @@ export const encode = ({ raptorq_raw }, { options, data, strategy }) => {
 				// Apply ESI remap to get external ESI value
 				const external_esi = strategy.esi.remap.to_external(internal_esi);
 
-				// Convert external SBN back to bytes based on max_external_bits
-				const sbn_byte_count = Math.ceil(strategy.sbn.max_external_bits / 8);
-				const new_sbn_bytes = new Uint8Array(sbn_byte_count);
-				for (let i = 0; i < sbn_byte_count; i++) {
-					new_sbn_bytes[sbn_byte_count - 1 - i] = (external_sbn >> (i * 8)) & 0xFF;
-				}
+				// Create separate Uint1Array instances for SBN and ESI
+				const sbn_array = new Uint1Array(BigInt(external_sbn), strategy.sbn.external_bits);
+				const esi_array = new Uint1Array(BigInt(external_esi), strategy.esi.external_bits);
 
-				// Convert external ESI back to bytes based on max_external_bits
-				const esi_byte_count = Math.ceil(strategy.esi.max_external_bits / 8);
-				const new_esi_bytes = new Uint8Array(esi_byte_count);
-				for (let i = 0; i < esi_byte_count; i++) {
-					new_esi_bytes[esi_byte_count - 1 - i] = (external_esi >> (i * 8)) & 0xFF;
-				}
+				// Create combined array using set method
+				const combined_array = new Uint1Array(strategy.sbn.external_bits + strategy.esi.external_bits);
+				combined_array.set(sbn_array, 0);
+				combined_array.set(esi_array, strategy.sbn.external_bits);
 
-				// Combine SBN, ESI, and symbol data
+				// Extract packed bytes and combine with symbol data
+				const packed_bytes = combined_array.to_uint8_array();
 				const symbol_data = packet.slice(4);
-				transformed_packet = new Uint8Array(new_sbn_bytes.length + new_esi_bytes.length + symbol_data.length);
-				transformed_packet.set(new_sbn_bytes, 0);
-				transformed_packet.set(new_esi_bytes, new_sbn_bytes.length);
-				transformed_packet.set(symbol_data, new_sbn_bytes.length + new_esi_bytes.length);
+				transformed_packet = new Uint8Array(packed_bytes.length + symbol_data.length);
+				transformed_packet.set(packed_bytes, 0);
+				transformed_packet.set(symbol_data, packed_bytes.length);
 			}
 
 			yield transformed_packet;
@@ -193,6 +185,7 @@ export const encode = ({ raptorq_raw }, { options, data, strategy }) => {
 
 	return {
 		oti: raw_result.oti,
+		oti_spec: raw_result.oti,
 		encoding_packets: transformed_encoding_packets,
 	};
 };

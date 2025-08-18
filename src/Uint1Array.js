@@ -3,10 +3,32 @@
  * Provides bit manipulation with byte-level storage efficiency
  */
 class Uint1Array {
-	constructor(length_in_bits) {
-		this._length_in_bits = length_in_bits;
-		this._byte_length = Math.ceil(length_in_bits / 8);
-		this._buffer = new Uint8Array(this._byte_length);
+	constructor(length_in_bits_or_bigint, bit_count) {
+		if (typeof length_in_bits_or_bigint === "bigint") {
+			// Constructor from BigInt
+			const value = length_in_bits_or_bigint;
+			bit_count ??= this._calculate_min_bits_for_bigint(value);
+			
+			this._length_in_bits = bit_count;
+			this._byte_length = Math.ceil(bit_count / 8);
+			this._buffer = new Uint8Array(this._byte_length);
+			
+			// Set bits from BigInt value
+			for (let i = 0; i < bit_count; i++) {
+				const bit = (value >> BigInt(bit_count - 1 - i)) & 1n;
+				this.set_bit(i, Number(bit));
+			}
+		} else {
+			// Original constructor from length
+			this._length_in_bits = length_in_bits_or_bigint;
+			this._byte_length = Math.ceil(length_in_bits_or_bigint / 8);
+			this._buffer = new Uint8Array(this._byte_length);
+		}
+	}
+
+	_calculate_min_bits_for_bigint(value) {
+		if (value === 0n) return 1;
+		return value.toString(2).length;
 	}
 
 	static from(source) {
@@ -209,6 +231,15 @@ class Uint1Array {
 	to_uint1_array() {
 		const result = new Uint1Array(this._length_in_bits);
 		result._buffer.set(this.to_uint8_array());
+		return result;
+	}
+
+	// Convert to BigInt
+	to_bigint() {
+		let result = 0n;
+		for (let i = 0; i < this._length_in_bits; i++) {
+			result = (result << 1n) | BigInt(this.get_bit(i));
+		}
 		return result;
 	}
 
