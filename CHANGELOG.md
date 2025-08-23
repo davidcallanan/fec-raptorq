@@ -1,5 +1,11 @@
 # Changelog
 
+**1.6.0**
+
+- Breaking: Remove `max_internal_value` from `strategy.esi` and `strategy.sbn` customization in `raptorq_suppa` since a good `remap` can already facilitate this.
+- Add `strategy.oti` customization to the `raptorq_suppa` interface.
+- Improve documentation.
+
 **1.5.0**
 
 - Breaking: Rename `max_external_bits` to `external_bits` in `raptorq_suppa` to better reflect its purpose.

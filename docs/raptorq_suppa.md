@@ -10,9 +10,8 @@ It will offer methods to:
  - Disable SBN output [DONE].
  - Reduce ESI size in output. [DONE]
  - Modify OTI structure:
-   - Remove FEC Encoding ID.
-   - Pre-negotiate certain encoding options and remove relevant data from OTI.
-   - Customize max transfer length.
+   - Remove FEC Encoding ID. [DONE]
+   - Pre-negotiate certain encoding options and remove relevant data from OTI. [DONE]
  - Enable per-packet OTI:
    - Reduces need to use OTI 
    - Does add overhead, but not too significant if symbol size is sufficiently large.
@@ -70,37 +69,30 @@ Note that the OTI is no longer spec-compliant. You may use `oti_spec` if you nee
 
 The contents of `strategy` must be identical for both the encoding and decoding process. The developer is responsible for pre-arranging this strategy.
 
+When providing custom `remap.to_internal` and `remap.to_external` functions, the system uses runtime round-trip testing (`to_internal(to_external(value)) === value` and `to_external(to_internal(value)) === value`) to see if the remaps work for any values that are being transformed. However, the system does not test dormant values, so it is the responsibility of the programmer to provide `to_internal` and `to_external` functions that are consistent with one another to prevent unexpected errors from cropping up.
+
 ```
 strategy.sbn: {
-	// if external_bits is 0, behaves like "mode"="disable" in current implementation
-	// essentially always behaves like "mode"="override" in current implementation (but defaults to overriding with same value, i.e. like "mode"="enable")
-	external_bits: 7, // can be set to 0 (default is 8 which is also the maximum)
-	max_internal_value: 2, // must fit within external_bits, (default is 255)
+	external_bits: 7, // (default 8, min 0, max 8) controls how many bits are used in the SBN representation
 	remap: {
-		to_internal: (_unused) => 0, // must return between 0 and max_internal_value.
-		to_external: (_unused) => 23, // cannot be present if max_bits is 0, must fit within max bits.
+		to_internal: (_unused) => 0, // must return between 0 and 255 (8-bit max for SBN).
+		to_external: (_unused) => 23, // cannot be present if external_bits is 0, must fit within external_bits.
 		// it is assumed the developer provides to_internal and to_external as polar opposites that reverse each other. the argument is the internal/external to be converted, but the argument is not used if external_bits is 0.
 	}, // default for remap is identity function (unless external_bits is 0, then default for to_external becomes undefined)!
-	// note the encoding options num_source_blocks must now be between 1 and max_internal_value + 1, not 1 and 255
+	// note the encoding options num_source_blocks checks if sbn as num_source_blocks - 1 works, but must work for all possible sbns but we dont check that for you.
 }
 
 strategy.esi: {
 	external_bits: 23, // can be set to between 2 and 24 (default is 24)
-	max_internal_value: 123123, // must fit within external_bits (default is 2**24)
 	remap: {
-		// identical system to sbn
+		// identical system to sbn, but must return between 0 and 2^24-1 (24-bit max for ESI)
 	}
-	// note we must calculate based on transfer length and symbol size how many symbols there are gonna be
-	// then we must check that this fits into max_internal_value
-	// TODO: consider removing max_internal_value, it's not that important.
-	// actually it's useful to be able to infer this in case the user chooses too high of a symbol count.
-	// however we can just test converting this to external and hoping for success, programmer can return undefined if no mapping is available
+	// note we calculate based on transfer length and symbol size how many symbols there are gonna be
+	// then we validate that this can be successfully converted using to_external
 }
 ```
 
-This feature is not yet implemented:
-
-Doesn't have to be linear.
+You can now customize the OTI output to make it more compact. Remapping between how it's stored in the OTI (external) vs what values are used in the encoding/decoding process (internal) facilitate reducing the acceptable values and introducing non-linear jumps if desired. You can access `oti_spec` to get the original OTI, but the decode process will not accept `oti_spec` from you.
 
 ```
 strategy.oti: {
@@ -120,26 +112,41 @@ strategy.oti: {
 		},
 	},
 	fec_encoding_id: {
-		mode: "omit", // safe
+		external_bits: 0 // can only be 0 or 8 (omitted or present)
+		// this is useless if your system does not need interoperability between different fec algorithms, in which case you may set external_bits to 0
+		// no remap options allowed here
 	},
-	num_source_blocks: {
-		mode: "present", // or maybe "include",
-		mode: "omit",
-		hardcoded_value: 1,
-		bits: 8, // can be 1 to 8
-		// if sbn.
-		value_bit_shift: 3, // since we reduce the max bits, this just offers some better range,
-		// tbh might disable value_bit_shift as value_remap can easily accomplish
-		value_remap: // allows remap some values to give more options
-	},
-	num_sub_blocks: {
-		mode: "present",
-		bits: 16,
-		// ...	
-	},
-	symbol_alignment: {
-		bits: 8
-		// ...
-	},
+	// ... all other oti values follow the same external_bits and remap format.
 }
 ```
+
+## Hardcoding Encoding Options
+
+Hardcoding encoding options is easy, and prevents these values from being present in the OTI, saving space and reducing the burden of negotation.
+
+For example, to hardcode `transfer_length` to `1024`, we would use the following configuration for encoding:
+
+```
+{
+	strategy: {
+		oti: {
+			external_bits: 0, // omit from OTI
+			remap: {
+				to_internal: () => 1024, // ensure the only acceptable value is 1024
+				to_external: undefined, // omit from OTI
+			},
+		},
+		// ...
+	},
+	options: {
+		transfer_length: 1024, // use the only acceptable value of 1024
+		// ...
+	},
+	// ...
+}
+```
+
+You must use the same `strategy` for decoding. If everything in the OTI is hardcoded then you can omit including this in the decoding process. You can detect this if the `oti` returned from encoding is `undefined`.
+
+The configuration is similar for other encoding options.
+

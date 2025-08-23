@@ -672,28 +672,246 @@ test("suppa.encode - strategy validation errors", () => {
 			}
 		}
 
-		// Test invalid strategy.sbn.max_internal_value
-		try {
-			suppa.encode({
-				options: { symbol_size: 104 },
-				data: test_data,
-				strategy: {
-					sbn: {
-						external_bits: 4,
-						max_internal_value: 20, // Invalid: > 2^4 - 1 = 15
-					},
-				},
-			});
-			return false; // Should have thrown
-		} catch (e) {
-			if (!e.message.includes("max_internal_value must be integer between 0 and 15")) {
-				return false;
-			}
-		}
-
 		return true;
 	} catch (error) {
 		console.error("Strategy validation test error:", error);
+		return false;
+	}
+});
+
+// Test OTI customization - strategy.oti with reduced bits
+test("suppa.encode/decode - strategy.oti custom bits", async () => {
+	try {
+		const test_data = createTestData(500);
+
+		// Test configuration: reduce transfer_length to 24 bits, omit fec_encoding_id, reduce symbol_size to 12 bits
+		const strategy = {
+			oti: {
+				transfer_length: {
+					external_bits: 24, // Reduced from 40 bits
+				},
+				fec_encoding_id: {
+					external_bits: 0, // Remove 8 bits (omit)
+				},
+				symbol_size: {
+					external_bits: 12, // Reduced from 16 bits
+				},
+				// Keep other fields at default sizes: num_source_blocks (8), num_sub_blocks (16), symbol_alignment (8)
+			},
+		};
+
+		const encoded = suppa.encode({
+			options: {
+				symbol_size: 64,
+			},
+			data: test_data,
+			strategy,
+		});
+
+		const oti = await encoded.oti;
+		const oti_spec = await encoded.oti_spec;
+
+		// Verify that oti_spec is still 12 bytes (original format)
+		if (oti_spec.length !== 12) {
+			return false;
+		}
+
+		// Verify that custom OTI has the expected byte length
+		// Expected bits: 24 (transfer_length) + 0 (fec_encoding_id omitted) + 12 (symbol_size) + 8 (num_source_blocks) + 16 (num_sub_blocks) + 8 (symbol_alignment) = 68 bits
+		// 68 bits = 9 bytes (rounded up)
+		const expected_oti_bytes = Math.ceil((24 + 0 + 12 + 8 + 16 + 8) / 8);
+		if (oti.length !== expected_oti_bytes) {
+			console.error(`Expected OTI length: ${expected_oti_bytes}, actual: ${oti.length}`);
+			return false;
+		}
+
+		// Collect some packets
+		const packets = [];
+		let packet_count = 0;
+		for await (const packet of encoded.encoding_packets) {
+			packets.push(packet);
+			packet_count++;
+			if (packet_count >= 20) break; // Collect enough packets for decoding
+		}
+
+		// Test decoding with the same strategy
+		const decoded = await suppa.decode({
+			oti,
+			encoding_packets: (async function* () {
+				for (const packet of packets) {
+					yield packet;
+				}
+			})(),
+			strategy,
+		});
+
+		return arraysEqual(decoded, test_data);
+
+	} catch (error) {
+		console.error("OTI custom bits test error:", error);
+		return false;
+	}
+});
+
+// Test OTI customization - hardcoded values (minimal OTI)
+test("suppa.encode/decode - strategy.oti hardcoded values", async () => {
+	try {
+		const test_data = createTestData(300);
+
+		// Test configuration: hardcode most values to minimize OTI size
+		const strategy = {
+			oti: {
+				transfer_length: {
+					external_bits: 0, // Hardcoded - omit from OTI
+					remap: {
+						to_internal: () => test_data.length, // Hardcode to actual data length
+						to_external: undefined,
+					},
+				},
+				fec_encoding_id: {
+					external_bits: 0, // Remove from OTI (omit)
+				},
+				symbol_size: {
+					external_bits: 0, // Hardcoded - omit from OTI
+					remap: {
+						to_internal: () => 64, // Hardcode symbol size
+						to_external: undefined,
+					},
+				},
+				num_source_blocks: {
+					external_bits: 0, // Hardcoded - omit from OTI
+					remap: {
+						to_internal: () => 1, // Hardcode to 1 block
+						to_external: undefined,
+					},
+				},
+				num_sub_blocks: {
+					external_bits: 0, // Hardcoded - omit from OTI
+					remap: {
+						to_internal: () => 1, // Hardcode to 1 sub-block
+						to_external: undefined,
+					},
+				},
+				symbol_alignment: {
+					external_bits: 0, // Hardcoded - omit from OTI
+					remap: {
+						to_internal: () => 1, // Hardcode alignment
+						to_external: undefined,
+					},
+				},
+			},
+		};
+
+		const encoded = suppa.encode({
+			options: {
+				symbol_size: 64, // Must match hardcoded value
+			},
+			data: test_data,
+			strategy,
+		});
+
+		const oti = await encoded.oti;
+		const oti_spec = await encoded.oti_spec;
+
+		// Verify that oti_spec is still 12 bytes (original format)
+		if (oti_spec.length !== 12) {
+			return false;
+		}
+
+		// Verify that custom OTI is undefined (all values hardcoded)
+		if (oti !== undefined) {
+			console.error(`Expected undefined OTI for fully hardcoded strategy, got ${oti?.length} bytes`);
+			return false;
+		}
+
+		// Collect some packets
+		const packets = [];
+		let packet_count = 0;
+		for await (const packet of encoded.encoding_packets) {
+			packets.push(packet);
+			packet_count++;
+			if (packet_count >= 15) break; // Collect enough packets for decoding
+		}
+
+		// Test decoding with the same strategy and undefined OTI
+		const decoded = await suppa.decode({
+			oti, // This will be undefined
+			encoding_packets: (async function* () {
+				for (const packet of packets) {
+					yield packet;
+				}
+			})(),
+			strategy,
+		});
+
+		return arraysEqual(decoded, test_data);
+
+	} catch (error) {
+		console.error("OTI hardcoded values test error:", error);
+		return false;
+	}
+});
+
+// Test OTI customization - custom remap functions
+test("suppa.encode/decode - strategy.oti custom remap", async () => {
+	try {
+		const test_data = createTestData(400);
+
+		// Test configuration: use custom remap for symbol_size (divide by 8 to compress representation)
+		const strategy = {
+			oti: {
+				symbol_size: {
+					external_bits: 8, // Reduced from 16 bits
+					remap: {
+						to_internal: (external) => external * 8, // Multiply by 8 to get actual size
+						to_external: (internal) => internal / 8, // Divide by 8 to compress
+					},
+				},
+			},
+		};
+
+		const encoded = suppa.encode({
+			options: {
+				symbol_size: 128, // Should be represented as 128/8 = 16 in external form
+			},
+			data: test_data,
+			strategy,
+		});
+
+		const oti = await encoded.oti;
+
+		// Expected bits: 40 (transfer_length) + 8 (fec_encoding_id) + 8 (symbol_size custom) + 8 (num_source_blocks) + 16 (num_sub_blocks) + 8 (symbol_alignment) = 88 bits
+		// 88 bits = 11 bytes
+		const expected_oti_bytes = Math.ceil((40 + 8 + 8 + 8 + 16 + 8) / 8);
+		if (oti.length !== expected_oti_bytes) {
+			console.error(`Expected OTI length: ${expected_oti_bytes}, actual: ${oti.length}`);
+			return false;
+		}
+
+		// Collect some packets
+		const packets = [];
+		let packet_count = 0;
+		for await (const packet of encoded.encoding_packets) {
+			packets.push(packet);
+			packet_count++;
+			if (packet_count >= 20) break;
+		}
+
+		// Test decoding with the same strategy
+		const decoded = await suppa.decode({
+			oti,
+			encoding_packets: (async function* () {
+				for (const packet of packets) {
+					yield packet;
+				}
+			})(),
+			strategy,
+		});
+
+		return arraysEqual(decoded, test_data);
+
+	} catch (error) {
+		console.error("OTI custom remap test error:", error);
 		return false;
 	}
 });

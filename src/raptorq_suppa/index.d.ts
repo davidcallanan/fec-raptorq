@@ -8,13 +8,41 @@ export interface EncodeOptions {
 	symbol_alignment?: number;
 }
 
+export interface RemapFunctions {
+	to_internal: (external: number) => number;
+	to_external?: (internal: number) => number; // undefined when external_bits is 0
+}
+
 export interface StrategySbn {
-	mode?: "enable" | "override" | "disable";
-	value?: number; // 0-255, only used when mode is "override"
+	external_bits?: number; // 0-8, default 8
+	remap?: RemapFunctions;
+}
+
+export interface StrategyEsi {
+	external_bits?: number; // 2-24, default 24  
+	remap?: RemapFunctions;
+}
+
+export interface OtiFieldStrategy {
+	external_bits?: number; // 0 means omit from OTI (hardcoded)
+	remap?: RemapFunctions;
+}
+
+export interface StrategyOti {
+	transfer_length?: OtiFieldStrategy; // 0-40 bits, default 40
+	fec_encoding_id?: {
+		mode?: "omit"; // Can only omit, default is to include with 8 bits
+	};
+	symbol_size?: OtiFieldStrategy; // 0-16 bits, default 16
+	num_source_blocks?: OtiFieldStrategy; // 0-8 bits, default 8
+	num_sub_blocks?: OtiFieldStrategy; // 0-16 bits, default 16
+	symbol_alignment?: OtiFieldStrategy; // 0-8 bits, default 8
 }
 
 export interface Strategy {
 	sbn?: StrategySbn;
+	esi?: StrategyEsi;
+	oti?: StrategyOti;
 }
 
 export interface EncodeInput {
@@ -25,6 +53,7 @@ export interface EncodeInput {
 
 export interface EncodeResult {
 	oti: Promise<Uint8Array>;
+	oti_spec: Promise<Uint8Array>;
 	encoding_packets: AsyncIterable<Uint8Array>;
 }
 

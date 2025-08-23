@@ -2,14 +2,78 @@ import { throw_error } from "../uoe/throw_error.js";
 import { error_user_payload } from "../uoe/error_user_payload.js";
 import Uint1Array from "../Uint1Array.js";
 
+// Safe wrapper functions that validate transformations
+const safe_max_value = (bits) => {
+	if (bits === 0) return 0n;
+	return (1n << BigInt(bits)) - 1n;
+};
+
+const create_safe_wrappers = (remap, external_bits, max_internal_bits) => {
+	const max_external_value = external_bits === 0 ? 0n : safe_max_value(external_bits);
+	const max_internal_value = safe_max_value(max_internal_bits);
+
+	const to_internal_safe = (external_value) => {
+		const internal_value = remap.to_internal(external_value);
+
+		if (false
+			|| typeof internal_value !== "number"
+			|| !Number.isInteger(internal_value)
+			|| internal_value < 0
+			|| BigInt(internal_value) > max_internal_value
+		) {
+			throw_error(error_user_payload(`to_internal returned invalid value ${internal_value}. Must be integer between 0 and ${max_internal_value}.`));
+		}
+
+		// Double-check round-trip consistency (only if external_bits > 0)
+		if (external_bits > 0) {
+			const round_trip_external = remap.to_external(internal_value);
+			if (round_trip_external !== external_value) {
+				throw_error(error_user_payload(`to_internal/to_external are not consistent. ${external_value} -> ${internal_value} -> ${round_trip_external}`));
+			}
+		}
+
+		return internal_value;
+	};
+
+	const to_external_safe = (internal_value) => {
+		if (external_bits === 0) {
+			if (remap.to_external !== undefined) {
+				throw_error(error_user_payload("to_external must be undefined when external_bits is 0"));
+			}
+			return undefined;
+		}
+
+		const external_value = remap.to_external(internal_value);
+
+		if (false
+			|| typeof external_value !== "number"
+			|| !Number.isInteger(external_value)
+			|| external_value < 0
+			|| BigInt(external_value) > max_external_value
+		) {
+			throw_error(error_user_payload(`to_external returned invalid value ${external_value}. Must be integer between 0 and ${max_external_value}.`));
+		}
+
+		// Double-check round-trip consistency
+		const round_trip_internal = remap.to_internal(external_value);
+		if (round_trip_internal !== internal_value) {
+			throw_error(error_user_payload(`to_internal/to_external are not consistent. ${internal_value} -> ${external_value} -> ${round_trip_internal}`));
+		}
+
+		return external_value;
+	};
+
+	return { to_internal_safe, to_external_safe };
+};
+
 export const decode = ({ raptorq_raw }, { usage, oti, encoding_packets, strategy }) => {
 	strategy ??= {};
 	strategy.sbn ??= {};
 	strategy.esi ??= {};
+	strategy.oti ??= {};
 
 	// Set defaults for strategy.sbn
 	strategy.sbn.external_bits ??= 8;
-	strategy.sbn.max_internal_value ??= 255;
 	strategy.sbn.remap ??= {};
 
 	// Validate strategy.sbn
@@ -20,16 +84,6 @@ export const decode = ({ raptorq_raw }, { usage, oti, encoding_packets, strategy
 		|| strategy.sbn.external_bits > 8
 	) {
 		throw_error(error_user_payload("Provided strategy.sbn.external_bits must be integer between 0 and 8."));
-	}
-
-	const max_sbn_external = (1 << strategy.sbn.external_bits) - 1;
-	if (false
-		|| typeof strategy.sbn.max_internal_value !== "number"
-		|| !Number.isInteger(strategy.sbn.max_internal_value)
-		|| strategy.sbn.max_internal_value < 0
-		|| strategy.sbn.max_internal_value > max_sbn_external
-	) {
-		throw_error(error_user_payload(`Provided strategy.sbn.max_internal_value must be integer between 0 and ${max_sbn_external}.`));
 	}
 
 	// Set defaults for remap functions
@@ -54,9 +108,11 @@ export const decode = ({ raptorq_raw }, { usage, oti, encoding_packets, strategy
 		throw_error(error_user_payload("Provided strategy.sbn.remap.to_external cannot be present when external_bits is 0."));
 	}
 
+	// Create safe wrappers for SBN (8 bits is the default max for internal SBN)
+	const sbn_wrappers = create_safe_wrappers(strategy.sbn.remap, strategy.sbn.external_bits, 8);
+
 	// Set defaults for strategy.esi
 	strategy.esi.external_bits ??= 24;
-	strategy.esi.max_internal_value ??= (1 << 24) - 1;
 	strategy.esi.remap ??= {};
 
 	// Validate strategy.esi
@@ -67,16 +123,6 @@ export const decode = ({ raptorq_raw }, { usage, oti, encoding_packets, strategy
 		|| strategy.esi.external_bits > 24
 	) {
 		throw_error(error_user_payload("Provided strategy.esi.external_bits must be integer between 2 and 24."));
-	}
-
-	const max_esi_external = (1 << strategy.esi.external_bits) - 1;
-	if (false
-		|| typeof strategy.esi.max_internal_value !== "number"
-		|| !Number.isInteger(strategy.esi.max_internal_value)
-		|| strategy.esi.max_internal_value < 0
-		|| strategy.esi.max_internal_value > max_esi_external
-	) {
-		throw_error(error_user_payload(`Provided strategy.esi.max_internal_value must be integer between 0 and ${max_esi_external}.`));
 	}
 
 	// Set defaults for ESI remap functions
@@ -91,6 +137,383 @@ export const decode = ({ raptorq_raw }, { usage, oti, encoding_packets, strategy
 	if (typeof strategy.esi.remap.to_external !== "function") {
 		throw_error(error_user_payload("Provided strategy.esi.remap.to_external must be a function."));
 	}
+
+	// Create safe wrappers for ESI (24 bits is the default max for internal ESI)
+	const esi_wrappers = create_safe_wrappers(strategy.esi.remap, strategy.esi.external_bits, 24);
+	// Process OTI if strategy.oti is configured
+	const process_oti = (input_oti) => {
+		// If no OTI strategy is configured, return the input OTI
+		if (Object.keys(strategy.oti).length === 0) {
+			return input_oti;
+		}
+
+		// Set defaults for all OTI fields when any OTI strategy is configured
+		strategy.oti.transfer_length ??= {};
+		strategy.oti.transfer_length.external_bits ??= 40;
+		strategy.oti.transfer_length.remap ??= {};
+		strategy.oti.transfer_length.remap.to_internal ??= (external) => external;
+		strategy.oti.transfer_length.remap.to_external ??= (internal) => internal;
+
+		strategy.oti.fec_encoding_id ??= {};
+		strategy.oti.fec_encoding_id.external_bits ??= 8;
+		// No remap functions for fec_encoding_id
+
+		strategy.oti.symbol_size ??= {};
+		strategy.oti.symbol_size.external_bits ??= 16;
+		strategy.oti.symbol_size.remap ??= {};
+		strategy.oti.symbol_size.remap.to_internal ??= (external) => external;
+		strategy.oti.symbol_size.remap.to_external ??= (internal) => internal;
+
+		strategy.oti.num_source_blocks ??= {};
+		strategy.oti.num_source_blocks.external_bits ??= 8;
+		strategy.oti.num_source_blocks.remap ??= {};
+		strategy.oti.num_source_blocks.remap.to_internal ??= (external) => external;
+		strategy.oti.num_source_blocks.remap.to_external ??= (internal) => internal;
+
+		strategy.oti.num_sub_blocks ??= {};
+		strategy.oti.num_sub_blocks.external_bits ??= 16;
+		strategy.oti.num_sub_blocks.remap ??= {};
+		strategy.oti.num_sub_blocks.remap.to_internal ??= (external) => external;
+		strategy.oti.num_sub_blocks.remap.to_external ??= (internal) => internal;
+
+		strategy.oti.symbol_alignment ??= {};
+		strategy.oti.symbol_alignment.external_bits ??= 8;
+		strategy.oti.symbol_alignment.remap ??= {};
+		strategy.oti.symbol_alignment.remap.to_internal ??= (external) => external;
+		strategy.oti.symbol_alignment.remap.to_external ??= (internal) => internal;
+
+		// If input_oti is undefined, all values are hardcoded
+		if (input_oti === undefined) {
+			// Need to reconstruct the 12-byte OTI using hardcoded values from remap.to_internal()
+			const reconstructed_oti = new Uint8Array(12);
+
+			// Get hardcoded values - these MUST be provided by the strategy
+			const transfer_length = strategy.oti.transfer_length?.remap?.to_internal?.(undefined);
+			// fec_encoding_id is always hardcoded to 6, no remap functions allowed
+			const fec_encoding_id = 6;
+			const symbol_size = strategy.oti.symbol_size?.remap?.to_internal?.(undefined);
+			const num_source_blocks = strategy.oti.num_source_blocks?.remap?.to_internal?.(undefined);
+			const num_sub_blocks = strategy.oti.num_sub_blocks?.remap?.to_internal?.(undefined);
+			const symbol_alignment = strategy.oti.symbol_alignment?.remap?.to_internal?.(undefined);
+
+			// All hardcoded values must be provided and valid - no defaults!
+			if (strategy.oti.transfer_length && (transfer_length === undefined || transfer_length === null)) {
+				throw_error(error_user_payload("strategy.oti.transfer_length.remap.to_internal must return a valid value when external_bits is 0"));
+			}
+			// fec_encoding_id has no validation since it's always 6 and has no remap functions
+			if (strategy.oti.symbol_size && (symbol_size === undefined || symbol_size === null)) {
+				throw_error(error_user_payload("strategy.oti.symbol_size.remap.to_internal must return a valid value when external_bits is 0"));
+			}
+			if (strategy.oti.num_source_blocks && (num_source_blocks === undefined || num_source_blocks === null)) {
+				throw_error(error_user_payload("strategy.oti.num_source_blocks.remap.to_internal must return a valid value when external_bits is 0"));
+			}
+			if (strategy.oti.num_sub_blocks && (num_sub_blocks === undefined || num_sub_blocks === null)) {
+				throw_error(error_user_payload("strategy.oti.num_sub_blocks.remap.to_internal must return a valid value when external_bits is 0"));
+			}
+			if (strategy.oti.symbol_alignment && (symbol_alignment === undefined || symbol_alignment === null)) {
+				throw_error(error_user_payload("strategy.oti.symbol_alignment.remap.to_internal must return a valid value when external_bits is 0"));
+			}
+
+			// Use actual hardcoded values (not defaults)
+			const actual_transfer_length = transfer_length;
+			const actual_fec_encoding_id = fec_encoding_id; // Always 6
+			const actual_symbol_size = symbol_size;
+			const actual_num_source_blocks = num_source_blocks;
+			const actual_num_sub_blocks = num_sub_blocks;
+			const actual_symbol_alignment = symbol_alignment;
+
+			// Validate hardcoded values before packing
+			if (false
+				|| typeof actual_transfer_length !== "number"
+				|| !Number.isInteger(actual_transfer_length)
+				|| actual_transfer_length < 1
+				|| actual_transfer_length > 942574504275
+			) {
+				throw_error(error_user_payload(`Invalid hardcoded transfer_length ${actual_transfer_length}. Must be integer between 1 and 942574504275.`));
+			}
+
+			if (false
+				|| typeof actual_fec_encoding_id !== "number"
+				|| !Number.isInteger(actual_fec_encoding_id)
+				|| actual_fec_encoding_id < 0
+				|| actual_fec_encoding_id > 255
+			) {
+				throw_error(error_user_payload(`Invalid hardcoded fec_encoding_id ${actual_fec_encoding_id}. Must be integer between 0 and 255.`));
+			}
+
+			if (false
+				|| typeof actual_symbol_size !== "number"
+				|| !Number.isInteger(actual_symbol_size)
+				|| actual_symbol_size < 1
+				|| actual_symbol_size > 65535
+			) {
+				throw_error(error_user_payload(`Invalid hardcoded symbol_size ${actual_symbol_size}. Must be integer between 1 and 65535.`));
+			}
+
+			if (false
+				|| typeof actual_num_source_blocks !== "number"
+				|| !Number.isInteger(actual_num_source_blocks)
+				|| actual_num_source_blocks < 1
+				|| actual_num_source_blocks > 256
+			) {
+				throw_error(error_user_payload(`Invalid hardcoded num_source_blocks ${actual_num_source_blocks}. Must be integer between 1 and 256.`));
+			}
+
+			if (false
+				|| typeof actual_num_sub_blocks !== "number"
+				|| !Number.isInteger(actual_num_sub_blocks)
+				|| actual_num_sub_blocks < 1
+				|| actual_num_sub_blocks > 65535
+			) {
+				throw_error(error_user_payload(`Invalid hardcoded num_sub_blocks ${actual_num_sub_blocks}. Must be integer between 1 and 65535.`));
+			}
+
+			if (false
+				|| typeof actual_symbol_alignment !== "number"
+				|| !Number.isInteger(actual_symbol_alignment)
+				|| actual_symbol_alignment < 1
+				|| actual_symbol_alignment > 255
+			) {
+				throw_error(error_user_payload(`Invalid hardcoded symbol_alignment ${actual_symbol_alignment}. Must be integer between 1 and 255.`));
+			}
+
+			// Validate symbols per block for hardcoded values
+			const symbols_per_block = Math.ceil(actual_transfer_length / (actual_symbol_size * actual_num_source_blocks));
+			const MAX_SOURCE_SYMBOLS_PER_BLOCK = 8192;
+			if (symbols_per_block > MAX_SOURCE_SYMBOLS_PER_BLOCK) {
+				throw_error(error_user_payload(`Hardcoded values would require ${symbols_per_block} symbols per block, exceeding limit of ${MAX_SOURCE_SYMBOLS_PER_BLOCK}. Adjust hardcoded symbol_size or num_source_blocks.`));
+			}
+
+			// Pack into 12-byte format
+			const tl_big = BigInt(actual_transfer_length);
+			reconstructed_oti[0] = Number((tl_big >> 32n) & 0xFFn);
+			reconstructed_oti[1] = Number((tl_big >> 24n) & 0xFFn);
+			reconstructed_oti[2] = Number((tl_big >> 16n) & 0xFFn);
+			reconstructed_oti[3] = Number((tl_big >> 8n) & 0xFFn);
+			reconstructed_oti[4] = Number(tl_big & 0xFFn);
+			reconstructed_oti[5] = actual_fec_encoding_id & 0xFF;
+			reconstructed_oti[6] = (actual_symbol_size >> 8) & 0xFF;
+			reconstructed_oti[7] = actual_symbol_size & 0xFF;
+			reconstructed_oti[8] = actual_num_source_blocks & 0xFF;
+			reconstructed_oti[9] = (actual_num_sub_blocks >> 8) & 0xFF;
+			reconstructed_oti[10] = actual_num_sub_blocks & 0xFF;
+			reconstructed_oti[11] = actual_symbol_alignment & 0xFF;
+
+			console.log("using reconstructed OTI", reconstructed_oti);
+
+			return reconstructed_oti;
+		}
+
+		// Parse the custom OTI and reconstruct the 12-byte standard OTI
+		const custom_bits = input_oti.length * 8;
+		const custom_oti_array = new Uint1Array(custom_bits);
+		custom_oti_array.get_underlying_buffer().set(input_oti);
+
+		let bit_offset = 0;
+		const reconstructed_oti = new Uint8Array(12);
+
+		// Extract transfer_length
+		let transfer_length;
+		if (strategy.oti.transfer_length) {
+			const bits = strategy.oti.transfer_length.external_bits;
+			if (bits > 0) {
+				const field_array = custom_oti_array.slice(bit_offset, bit_offset + bits);
+				const external_value = Number(field_array.to_bigint());
+				transfer_length = strategy.oti.transfer_length.remap?.to_internal
+					? strategy.oti.transfer_length.remap.to_internal(external_value)
+					: external_value;
+				bit_offset += bits;
+			} else {
+				// Hardcoded value - must be provided by strategy
+				if (!strategy.oti.transfer_length?.remap?.to_internal) {
+					throw_error(error_user_payload("strategy.oti.transfer_length.remap.to_internal is required when external_bits is 0"));
+				}
+				transfer_length = strategy.oti.transfer_length.remap.to_internal(undefined);
+			}
+		}
+
+		// Pack transfer_length (40 bits = 5 bytes)
+		const tl_big = BigInt(transfer_length);
+		reconstructed_oti[0] = Number((tl_big >> 32n) & 0xFFn);
+		reconstructed_oti[1] = Number((tl_big >> 24n) & 0xFFn);
+		reconstructed_oti[2] = Number((tl_big >> 16n) & 0xFFn);
+		reconstructed_oti[3] = Number((tl_big >> 8n) & 0xFFn);
+		reconstructed_oti[4] = Number(tl_big & 0xFFn);
+
+		// Extract fec_encoding_id
+		let fec_encoding_id;
+		if (strategy.oti.fec_encoding_id && strategy.oti.fec_encoding_id.external_bits > 0) {
+			if (strategy.oti.fec_encoding_id.external_bits !== 8) {
+				throw_error(error_user_payload(`fec_encoding_id.external_bits must be 0 (omitted) or 8 (present), got ${strategy.oti.fec_encoding_id.external_bits}`));
+			}
+			const field_array = custom_oti_array.slice(bit_offset, bit_offset + 8);
+			const external_value = Number(field_array.to_bigint());
+			// fec_encoding_id has no remap functions, should always be 6
+			fec_encoding_id = external_value;
+			bit_offset += 8;
+		} else {
+			// FEC encoding ID is omitted - always hardcoded to 6
+			fec_encoding_id = 6;
+		}
+		reconstructed_oti[5] = fec_encoding_id & 0xFF;
+
+		// Extract symbol_size
+		let symbol_size;
+		if (strategy.oti.symbol_size) {
+			const bits = strategy.oti.symbol_size.external_bits ?? 16;
+			if (bits > 0) {
+				const field_array = custom_oti_array.slice(bit_offset, bit_offset + bits);
+				const external_value = Number(field_array.to_bigint());
+				symbol_size = strategy.oti.symbol_size.remap?.to_internal
+					? strategy.oti.symbol_size.remap.to_internal(external_value)
+					: external_value;
+				bit_offset += bits;
+			} else {
+				// Hardcoded value - must be provided by strategy
+				if (!strategy.oti.symbol_size?.remap?.to_internal) {
+					throw_error(error_user_payload("strategy.oti.symbol_size.remap.to_internal is required when external_bits is 0"));
+				}
+				symbol_size = strategy.oti.symbol_size.remap.to_internal(undefined);
+			}
+		}
+
+		// Pack symbol_size (16 bits = 2 bytes)
+		reconstructed_oti[6] = (symbol_size >> 8) & 0xFF;
+		reconstructed_oti[7] = symbol_size & 0xFF;
+
+		// Extract num_source_blocks
+		let num_source_blocks;
+		if (strategy.oti.num_source_blocks) {
+			const bits = strategy.oti.num_source_blocks.external_bits ?? 8;
+			if (bits > 0) {
+				const field_array = custom_oti_array.slice(bit_offset, bit_offset + bits);
+				const external_value = Number(field_array.to_bigint());
+				num_source_blocks = strategy.oti.num_source_blocks.remap?.to_internal
+					? strategy.oti.num_source_blocks.remap.to_internal(external_value)
+					: external_value;
+				bit_offset += bits;
+			} else {
+				// Hardcoded value - must be provided by strategy
+				if (!strategy.oti.num_source_blocks?.remap?.to_internal) {
+					throw_error(error_user_payload("strategy.oti.num_source_blocks.remap.to_internal is required when external_bits is 0"));
+				}
+				num_source_blocks = strategy.oti.num_source_blocks.remap.to_internal(undefined);
+			}
+		}
+		reconstructed_oti[8] = num_source_blocks & 0xFF;
+
+		// Extract num_sub_blocks
+		let num_sub_blocks;
+		if (strategy.oti.num_sub_blocks) {
+			const bits = strategy.oti.num_sub_blocks.external_bits ?? 16;
+			if (bits > 0) {
+				const field_array = custom_oti_array.slice(bit_offset, bit_offset + bits);
+				const external_value = Number(field_array.to_bigint());
+				num_sub_blocks = strategy.oti.num_sub_blocks.remap?.to_internal
+					? strategy.oti.num_sub_blocks.remap.to_internal(external_value)
+					: external_value;
+				bit_offset += bits;
+			} else {
+				// Hardcoded value - must be provided by strategy
+				if (!strategy.oti.num_sub_blocks?.remap?.to_internal) {
+					throw_error(error_user_payload("strategy.oti.num_sub_blocks.remap.to_internal is required when external_bits is 0"));
+				}
+				num_sub_blocks = strategy.oti.num_sub_blocks.remap.to_internal(undefined);
+			}
+		}
+
+		// Pack num_sub_blocks (16 bits = 2 bytes)
+		reconstructed_oti[9] = (num_sub_blocks >> 8) & 0xFF;
+		reconstructed_oti[10] = num_sub_blocks & 0xFF;
+
+		// Extract symbol_alignment
+		let symbol_alignment;
+		if (strategy.oti.symbol_alignment) {
+			const bits = strategy.oti.symbol_alignment.external_bits ?? 8;
+			if (bits > 0) {
+				const field_array = custom_oti_array.slice(bit_offset, bit_offset + bits);
+				const external_value = Number(field_array.to_bigint());
+				symbol_alignment = strategy.oti.symbol_alignment.remap?.to_internal
+					? strategy.oti.symbol_alignment.remap.to_internal(external_value)
+					: external_value;
+				bit_offset += bits;
+			} else {
+				// Hardcoded value - must be provided by strategy
+				if (!strategy.oti.symbol_alignment?.remap?.to_internal) {
+					throw_error(error_user_payload("strategy.oti.symbol_alignment.remap.to_internal is required when external_bits is 0"));
+				}
+				symbol_alignment = strategy.oti.symbol_alignment.remap.to_internal(undefined);
+			}
+		}
+		reconstructed_oti[11] = symbol_alignment & 0xFF;
+
+		// Validate the reconstructed OTI values before returning to prevent Rust panics
+		if (false
+			|| typeof transfer_length !== "number"
+			|| !Number.isInteger(transfer_length)
+			|| transfer_length < 1
+			|| transfer_length > 942574504275 // Max value from Rust assertion
+		) {
+			throw_error(error_user_payload(`Invalid transfer_length ${transfer_length}. Must be integer between 1 and 942574504275.`));
+		}
+
+		if (false
+			|| typeof fec_encoding_id !== "number"
+			|| !Number.isInteger(fec_encoding_id)
+			|| fec_encoding_id < 0
+			|| fec_encoding_id > 255
+		) {
+			throw_error(error_user_payload(`Invalid fec_encoding_id ${fec_encoding_id}. Must be integer between 0 and 255.`));
+		}
+
+		if (false
+			|| typeof symbol_size !== "number"
+			|| !Number.isInteger(symbol_size)
+			|| symbol_size < 1
+			|| symbol_size > 65535 // 16-bit max
+		) {
+			throw_error(error_user_payload(`Invalid symbol_size ${symbol_size}. Must be integer between 1 and 65535.`));
+		}
+
+		if (false
+			|| typeof num_source_blocks !== "number"
+			|| !Number.isInteger(num_source_blocks)
+			|| num_source_blocks < 1
+			|| num_source_blocks > 256 // RaptorQ max
+		) {
+			throw_error(error_user_payload(`Invalid num_source_blocks ${num_source_blocks}. Must be integer between 1 and 256.`));
+		}
+
+		if (false
+			|| typeof num_sub_blocks !== "number"
+			|| !Number.isInteger(num_sub_blocks)
+			|| num_sub_blocks < 1
+			|| num_sub_blocks > 65535 // 16-bit max
+		) {
+			throw_error(error_user_payload(`Invalid num_sub_blocks ${num_sub_blocks}. Must be integer between 1 and 65535.`));
+		}
+
+		if (false
+			|| typeof symbol_alignment !== "number"
+			|| !Number.isInteger(symbol_alignment)
+			|| symbol_alignment < 1
+			|| symbol_alignment > 255 // 8-bit max
+		) {
+			throw_error(error_user_payload(`Invalid symbol_alignment ${symbol_alignment}. Must be integer between 1 and 255.`));
+		}
+
+		// Additional validation: check that symbols_required doesn't exceed limits
+		// symbols_required is roughly transfer_length / symbol_size per source block
+		const symbols_per_block = Math.ceil(transfer_length / (symbol_size * num_source_blocks));
+		const MAX_SOURCE_SYMBOLS_PER_BLOCK = 8192; // Common RaptorQ limit
+		if (symbols_per_block > MAX_SOURCE_SYMBOLS_PER_BLOCK) {
+			throw_error(error_user_payload(`Symbol configuration would require ${symbols_per_block} symbols per block, exceeding limit of ${MAX_SOURCE_SYMBOLS_PER_BLOCK}. Try increasing symbol_size or num_source_blocks.`));
+		}
+
+		return reconstructed_oti;
+	};
+
+	const processed_oti = process_oti(oti);
 
 	// Transform the encoding packets based on strategy before passing to raw decode
 	const transformed_encoding_packets = {
@@ -112,8 +535,8 @@ export const decode = ({ raptorq_raw }, { usage, oti, encoding_packets, strategy
 					const esi_array = combined_array.slice(0, esi_bits);
 					const external_esi = Number(esi_array.to_bigint());
 
-					// Apply ESI remap to get internal ESI value
-					const internal_esi = strategy.esi.remap.to_internal(external_esi);
+					// Apply ESI remap to get internal ESI value using safe wrapper
+					const internal_esi = esi_wrappers.to_internal_safe(external_esi);
 
 					// Convert internal ESI to 3-byte format
 					const internal_esi_bytes = new Uint8Array(3);
@@ -145,9 +568,9 @@ export const decode = ({ raptorq_raw }, { usage, oti, encoding_packets, strategy
 					const external_sbn = Number(sbn_array.to_bigint());
 					const external_esi = Number(esi_array.to_bigint());
 
-					// Apply remap functions to get internal values
-					const internal_sbn = strategy.sbn.remap.to_internal(external_sbn);
-					const internal_esi = strategy.esi.remap.to_internal(external_esi);
+					// Apply remap functions to get internal values using safe wrappers
+					const internal_sbn = sbn_wrappers.to_internal_safe(external_sbn);
+					const internal_esi = esi_wrappers.to_internal_safe(external_esi);
 
 					// Convert internal ESI to 3-byte format
 					const internal_esi_bytes = new Uint8Array(3);
@@ -168,5 +591,5 @@ export const decode = ({ raptorq_raw }, { usage, oti, encoding_packets, strategy
 		}
 	};
 
-	return raptorq_raw.decode({ usage, oti, encoding_packets: transformed_encoding_packets });
+	return raptorq_raw.decode({ usage, oti: processed_oti, encoding_packets: transformed_encoding_packets });
 };
