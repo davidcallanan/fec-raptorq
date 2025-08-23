@@ -12,7 +12,7 @@ It will offer methods to:
  - Modify OTI structure:
    - Remove FEC Encoding ID. [DONE]
    - Pre-negotiate certain encoding options and remove relevant data from OTI. [DONE]
- - Enable per-packet OTI:
+ - Enable per-packet OTI: [DONE]
    - Reduces need to use OTI 
    - Does add overhead, but not too significant if symbol size is sufficiently large.
    - Simplifies developer experience at a small cost.
@@ -72,23 +72,24 @@ The contents of `strategy` must be identical for both the encoding and decoding 
 When providing custom `remap.to_internal` and `remap.to_external` functions, the system uses runtime round-trip testing (`to_internal(to_external(value)) === value` and `to_external(to_internal(value)) === value`) to see if the remaps work for any values that are being transformed. However, the system does not test dormant values, so it is the responsibility of the programmer to provide `to_internal` and `to_external` functions that are consistent with one another to prevent unexpected errors from cropping up.
 
 ```
-strategy.sbn: {
-	external_bits: 7, // (default 8, min 0, max 8) controls how many bits are used in the SBN representation
-	remap: {
-		to_internal: (_unused) => 0, // must return between 0 and 255 (8-bit max for SBN).
-		to_external: (_unused) => 23, // cannot be present if external_bits is 0, must fit within external_bits.
-		// it is assumed the developer provides to_internal and to_external as polar opposites that reverse each other. the argument is the internal/external to be converted, but the argument is not used if external_bits is 0.
-	}, // default for remap is identity function (unless external_bits is 0, then default for to_external becomes undefined)!
-	// note the encoding options num_source_blocks checks if sbn as num_source_blocks - 1 works, but must work for all possible sbns but we dont check that for you.
-}
-
-strategy.esi: {
-	external_bits: 23, // can be set to between 2 and 24 (default is 24)
-	remap: {
-		// identical system to sbn, but must return between 0 and 2^24-1 (24-bit max for ESI)
+strategy.encoding_packet: {
+	sbn: {
+		external_bits: 7, // (default 8, min 0, max 8) controls how many bits are used in the SBN representation
+		remap: {
+			to_internal: (_unused) => 0, // must return between 0 and 255 (8-bit max for SBN).
+			to_external: (_unused) => 23, // cannot be present if external_bits is 0, must fit within external_bits.
+			// it is assumed the developer provides to_internal and to_external as polar opposites that reverse each other. the argument is the internal/external to be converted, but the argument is not used if external_bits is 0.
+		}, // default for remap is identity function (unless external_bits is 0, then default for to_external becomes undefined)!
+		// note the encoding options num_source_blocks checks if sbn as num_source_blocks - 1 works, but must work for all possible sbns but we dont check that for you.
+	},
+	esi: {
+		external_bits: 23, // can be set to between 2 and 24 (default is 24)
+		remap: {
+			// identical system to sbn, but must return between 0 and 2^24-1 (24-bit max for ESI)
+		}
+		// note we calculate based on transfer length and symbol size how many symbols there are gonna be
+		// then we validate that this can be successfully converted using to_external
 	}
-	// note we calculate based on transfer length and symbol size how many symbols there are gonna be
-	// then we validate that this can be successfully converted using to_external
 }
 ```
 
@@ -120,6 +121,19 @@ strategy.oti: {
 }
 ```
 
+You can now enable per-packet OTI, this means the OTI is copied into each encoding packet, meaning no need for pre-negotiation of OTI. This is costly in terms of the overhead of OTI duplication, but if OTI is customized to be small in size, then the added overhead can easily become negligible. With some work, you can get the OTI under 8 bytes, and often under 6 or 4 bytes.
+
+```
+strategy: {
+	oti: {
+		placement: "negotation", // (default)
+		// when placement === "negotation", oti is returned as normal from encoding process.
+		placement: "encoding_packet", // enables per-packet OTI
+		// when placement === "encoding_packet", the returned `oti` from encoding will be undefined (and decoding will expect the same), and decoding will now read the oti on a per-packet basis. if decoder encounters two different OTI during processing, it will error.
+	},
+},
+```
+
 ## Hardcoding Encoding Options
 
 Hardcoding encoding options is easy, and prevents these values from being present in the OTI, saving space and reducing the burden of negotation.
@@ -130,10 +144,12 @@ For example, to hardcode `transfer_length` to `1024`, we would use the following
 {
 	strategy: {
 		oti: {
-			external_bits: 0, // omit from OTI
-			remap: {
-				to_internal: () => 1024, // ensure the only acceptable value is 1024
-				to_external: undefined, // omit from OTI
+			transfer_length: {
+				external_bits: 0, // omit from OTI
+				remap: {
+					to_internal: () => 1024, // ensure the only acceptable value is 1024
+					to_external: undefined, // omit from OTI
+				},
 			},
 		},
 		// ...

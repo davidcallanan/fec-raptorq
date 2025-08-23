@@ -1,5 +1,12 @@
 # Changelog
 
+**1.7.0**
+
+- Breaking: Rename `strategy.sbn` to `strategy.encoding_packet.sbn` in `raptorq_suppa`.
+- Breaking: Rename `strategy.esi` to `strategy.encoding_packet.esi` in `raptorq_suppa`.
+- Fix ability to return `undefined` in `to_external` functions in `raptorq_suppa` to signify disallowed values.
+- Add `strategy.oti.placement` customization to the `raptorq_suppa` interface.
+
 **1.6.0**
 
 - Breaking: Remove `max_internal_value` from `strategy.esi` and `strategy.sbn` customization in `raptorq_suppa` since a good `remap` can already facilitate this.

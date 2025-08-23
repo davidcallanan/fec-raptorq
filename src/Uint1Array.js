@@ -8,11 +8,11 @@ class Uint1Array {
 			// Constructor from BigInt
 			const value = length_in_bits_or_bigint;
 			bit_count ??= this._calculate_min_bits_for_bigint(value);
-			
+
 			this._length_in_bits = bit_count;
 			this._byte_length = Math.ceil(bit_count / 8);
 			this._buffer = new Uint8Array(this._byte_length);
-			
+
 			// Set bits from BigInt value
 			for (let i = 0; i < bit_count; i++) {
 				const bit = (value >> BigInt(bit_count - 1 - i)) & 1n;
@@ -450,6 +450,30 @@ class Uint1Array {
 
 		for (let i = 0; i < copy_length; i++) {
 			this.set_bit(offset + i, source.get_bit(i));
+		}
+
+		return this;
+	}
+
+	set_uint8array(source, offset = 0) {
+		if (!(source instanceof Uint8Array)) {
+			throw new TypeError("Source must be a Uint8Array");
+		}
+
+		if (offset < 0 || offset >= this._length_in_bits) {
+			throw new RangeError("Offset out of range");
+		}
+
+		const bits_to_copy = Math.min(
+			source.length * 8,
+			this._length_in_bits - offset,
+		);
+
+		for (let i = 0; i < bits_to_copy; i++) {
+			const byte_index = Math.floor(i / 8);
+			const bit_offset = i % 8;
+			const bit_value = (source[byte_index] >> (7 - bit_offset)) & 1;
+			this.set_bit(offset + i, bit_value);
 		}
 
 		return this;

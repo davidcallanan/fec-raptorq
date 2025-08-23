@@ -28,6 +28,11 @@ const create_safe_wrappers = (remap, external_bits, max_internal_bits) => {
 		// Double-check round-trip consistency (only if external_bits > 0)
 		if (external_bits > 0) {
 			const round_trip_external = remap.to_external(internal_value);
+
+			if (round_trip_external === undefined) {
+				throw_error(error_user_payload(`Internal value ${internal_value} cannot be represented externally (to_external returned undefined).`));
+			}
+
 			if (round_trip_external !== external_value) {
 				throw_error(error_user_payload(`to_internal/to_external are not consistent. ${external_value} -> ${internal_value} -> ${round_trip_external}`));
 			}
@@ -45,6 +50,11 @@ const create_safe_wrappers = (remap, external_bits, max_internal_bits) => {
 		}
 
 		const external_value = remap.to_external(internal_value);
+
+		// Allow to_external to return undefined to indicate non-representable values
+		if (external_value === undefined) {
+			throw_error(error_user_payload(`Internal value ${internal_value} cannot be represented externally (to_external returned undefined).`));
+		}
 
 		if (false
 			|| typeof external_value !== "number"
@@ -69,78 +79,85 @@ const create_safe_wrappers = (remap, external_bits, max_internal_bits) => {
 
 export const encode = ({ raptorq_raw }, { options, data, strategy }) => {
 	strategy ??= {};
-	strategy.sbn ??= {};
-	strategy.esi ??= {};
+	strategy.encoding_packet ??= {};
+	strategy.encoding_packet.sbn ??= {};
+	strategy.encoding_packet.esi ??= {};
 	strategy.oti ??= {};
 
-	// Set defaults for strategy.sbn
-	strategy.sbn.external_bits ??= 8;
-	strategy.sbn.remap ??= {};
+	// Set defaults and validate strategy.oti.placement
+	strategy.oti.placement ??= "negotation";
+	if (strategy.oti.placement !== "negotation" && strategy.oti.placement !== "encoding_packet") {
+		throw_error(error_user_payload(`Provided strategy.oti.placement must be "negotation" or "encoding_packet", got "${strategy.oti.placement}"`));
+	}
 
-	// Validate strategy.sbn
+	// Set defaults for strategy.encoding_packet.sbn
+	strategy.encoding_packet.sbn.external_bits ??= 8;
+	strategy.encoding_packet.sbn.remap ??= {};
+
+	// Validate strategy.encoding_packet.sbn
 	if (false
-		|| typeof strategy.sbn.external_bits !== "number"
-		|| !Number.isInteger(strategy.sbn.external_bits)
-		|| strategy.sbn.external_bits < 0
-		|| strategy.sbn.external_bits > 8
+		|| typeof strategy.encoding_packet.sbn.external_bits !== "number"
+		|| !Number.isInteger(strategy.encoding_packet.sbn.external_bits)
+		|| strategy.encoding_packet.sbn.external_bits < 0
+		|| strategy.encoding_packet.sbn.external_bits > 8
 	) {
-		throw_error(error_user_payload("Provided strategy.sbn.external_bits must be integer between 0 and 8."));
+		throw_error(error_user_payload("Provided strategy.encoding_packet.sbn.external_bits must be integer between 0 and 8."));
 	}
 
 	// Set defaults for remap functions
-	if (strategy.sbn.external_bits === 0) {
-		strategy.sbn.remap.to_internal ??= (_unused) => 0;
-		strategy.sbn.remap.to_external = undefined; // Cannot be present if max_bits is 0
+	if (strategy.encoding_packet.sbn.external_bits === 0) {
+		strategy.encoding_packet.sbn.remap.to_internal ??= (_unused) => 0;
+		strategy.encoding_packet.sbn.remap.to_external = undefined; // Cannot be present if max_bits is 0
 	} else {
-		strategy.sbn.remap.to_internal ??= (external) => external;
-		strategy.sbn.remap.to_external ??= (internal) => internal;
+		strategy.encoding_packet.sbn.remap.to_internal ??= (external) => external;
+		strategy.encoding_packet.sbn.remap.to_external ??= (internal) => internal;
 	}
 
 	// Validate remap functions
-	if (typeof strategy.sbn.remap.to_internal !== "function") {
-		throw_error(error_user_payload("Provided strategy.sbn.remap.to_internal must be a function."));
+	if (typeof strategy.encoding_packet.sbn.remap.to_internal !== "function") {
+		throw_error(error_user_payload("Provided strategy.encoding_packet.sbn.remap.to_internal must be a function."));
 	}
 
-	if (strategy.sbn.external_bits > 0) {
-		if (typeof strategy.sbn.remap.to_external !== "function") {
-			throw_error(error_user_payload("Provided strategy.sbn.remap.to_external must be a function when external_bits > 0."));
+	if (strategy.encoding_packet.sbn.external_bits > 0) {
+		if (typeof strategy.encoding_packet.sbn.remap.to_external !== "function") {
+			throw_error(error_user_payload("Provided strategy.encoding_packet.sbn.remap.to_external must be a function when external_bits > 0."));
 		}
-	} else if (strategy.sbn.remap.to_external !== undefined) {
-		throw_error(error_user_payload("Provided strategy.sbn.remap.to_external cannot be present when external_bits is 0."));
+	} else if (strategy.encoding_packet.sbn.remap.to_external !== undefined) {
+		throw_error(error_user_payload("Provided strategy.encoding_packet.sbn.remap.to_external cannot be present when external_bits is 0."));
 	}
 
 	// Create safe wrappers for SBN (8 bits is the default max for internal SBN)
-	const sbn_wrappers = create_safe_wrappers(strategy.sbn.remap, strategy.sbn.external_bits, 8);
+	const sbn_wrappers = create_safe_wrappers(strategy.encoding_packet.sbn.remap, strategy.encoding_packet.sbn.external_bits, 8);
 
-	// Set defaults for strategy.esi
-	strategy.esi.external_bits ??= 24;
-	strategy.esi.remap ??= {};
+	// Set defaults for strategy.encoding_packet.esi
+	strategy.encoding_packet.esi.external_bits ??= 24;
+	strategy.encoding_packet.esi.remap ??= {};
 
-	// Validate strategy.esi
+	// Validate strategy.encoding_packet.esi
 	if (false
-		|| typeof strategy.esi.external_bits !== "number"
-		|| !Number.isInteger(strategy.esi.external_bits)
-		|| strategy.esi.external_bits < 2
-		|| strategy.esi.external_bits > 24
+		|| typeof strategy.encoding_packet.esi.external_bits !== "number"
+		|| !Number.isInteger(strategy.encoding_packet.esi.external_bits)
+		|| strategy.encoding_packet.esi.external_bits < 2
+		|| strategy.encoding_packet.esi.external_bits > 24
 	) {
-		throw_error(error_user_payload("Provided strategy.esi.external_bits must be integer between 2 and 24."));
+		throw_error(error_user_payload("Provided strategy.encoding_packet.esi.external_bits must be integer between 2 and 24."));
 	}
 
 	// Set defaults for ESI remap functions
-	strategy.esi.remap.to_internal ??= (external) => external;
-	strategy.esi.remap.to_external ??= (internal) => internal;
+	strategy.encoding_packet.esi.remap.to_internal ??= (external) => external;
+	strategy.encoding_packet.esi.remap.to_external ??= (internal) => internal;
 
 	// Validate ESI remap functions
-	if (typeof strategy.esi.remap.to_internal !== "function") {
-		throw_error(error_user_payload("Provided strategy.esi.remap.to_internal must be a function."));
+	if (typeof strategy.encoding_packet.esi.remap.to_internal !== "function") {
+		throw_error(error_user_payload("Provided strategy.encoding_packet.esi.remap.to_internal must be a function."));
 	}
 
-	if (typeof strategy.esi.remap.to_external !== "function") {
-		throw_error(error_user_payload("Provided strategy.esi.remap.to_external must be a function."));
+	if (typeof strategy.encoding_packet.esi.remap.to_external !== "function") {
+		throw_error(error_user_payload("Provided strategy.encoding_packet.esi.remap.to_external must be a function."));
 	}
 
 	// Create safe wrappers for ESI (24 bits is the default max for internal ESI)
-	const esi_wrappers = create_safe_wrappers(strategy.esi.remap, strategy.esi.external_bits, 24);
+	const esi_wrappers = create_safe_wrappers(strategy.encoding_packet.esi.remap, strategy.encoding_packet.esi.external_bits, 24);
 
 	// Validate encoding options against safe wrappers (test the transformations)
 	options ??= {};
@@ -449,10 +466,16 @@ export const encode = ({ raptorq_raw }, { options, data, strategy }) => {
 			throw_error(error_user_payload(`Estimated symbol count ${estimated_total_symbols} cannot be represented with current ESI strategy: ${e.message}`));
 		}
 
+		// Get OTI for per-packet placement if needed
+		let oti_for_packets = null;
+		if (strategy.oti.placement === "encoding_packet") {
+			oti_for_packets = await process_oti(raw_result.oti);
+		}
+
 		for await (const packet of raw_result.encoding_packets) {
 			let transformed_packet;
 
-			if (strategy.sbn.external_bits === 0) {
+			if (strategy.encoding_packet.sbn.external_bits === 0) {
 				// Remove SBN (first byte) from the packet - behaves like "disable" mode
 				const payload_without_sbn = packet.slice(1);
 
@@ -469,14 +492,29 @@ export const encode = ({ raptorq_raw }, { options, data, strategy }) => {
 				const external_esi = esi_wrappers.to_external_safe(internal_esi);
 
 				// Create ESI Uint1Array from BigInt
-				const esi_array = new Uint1Array(BigInt(external_esi), strategy.esi.external_bits);
+				const esi_array = new Uint1Array(BigInt(external_esi), strategy.encoding_packet.esi.external_bits);
 
 				// Extract packed bytes and combine with symbol data
 				const packed_bytes = esi_array.to_uint8_array();
 				const symbol_data = payload_without_sbn.slice(3);
-				transformed_packet = new Uint8Array(packed_bytes.length + symbol_data.length);
-				transformed_packet.set(packed_bytes, 0);
-				transformed_packet.set(symbol_data, packed_bytes.length);
+
+				// Create the base packet
+				const base_packet_length = packed_bytes.length + symbol_data.length;
+				let final_packet;
+
+				if (strategy.oti.placement === "encoding_packet" && oti_for_packets) {
+					// Prepend OTI to the packet
+					final_packet = new Uint8Array(oti_for_packets.length + base_packet_length);
+					final_packet.set(oti_for_packets, 0);
+					final_packet.set(packed_bytes, oti_for_packets.length);
+					final_packet.set(symbol_data, oti_for_packets.length + packed_bytes.length);
+				} else {
+					final_packet = new Uint8Array(base_packet_length);
+					final_packet.set(packed_bytes, 0);
+					final_packet.set(symbol_data, packed_bytes.length);
+				}
+
+				transformed_packet = final_packet;
 			} else {
 				// Transform SBN (first byte) and ESI (next 3 bytes)
 				const sbn_byte = packet[0];
@@ -495,20 +533,35 @@ export const encode = ({ raptorq_raw }, { options, data, strategy }) => {
 				const external_esi = esi_wrappers.to_external_safe(internal_esi);
 
 				// Create separate Uint1Array instances for SBN and ESI
-				const sbn_array = new Uint1Array(BigInt(external_sbn), strategy.sbn.external_bits);
-				const esi_array = new Uint1Array(BigInt(external_esi), strategy.esi.external_bits);
+				const sbn_array = new Uint1Array(BigInt(external_sbn), strategy.encoding_packet.sbn.external_bits);
+				const esi_array = new Uint1Array(BigInt(external_esi), strategy.encoding_packet.esi.external_bits);
 
 				// Create combined array using set method
-				const combined_array = new Uint1Array(strategy.sbn.external_bits + strategy.esi.external_bits);
+				const combined_array = new Uint1Array(strategy.encoding_packet.sbn.external_bits + strategy.encoding_packet.esi.external_bits);
 				combined_array.set(sbn_array, 0);
-				combined_array.set(esi_array, strategy.sbn.external_bits);
+				combined_array.set(esi_array, strategy.encoding_packet.sbn.external_bits);
 
 				// Extract packed bytes and combine with symbol data
 				const packed_bytes = combined_array.to_uint8_array();
 				const symbol_data = packet.slice(4);
-				transformed_packet = new Uint8Array(packed_bytes.length + symbol_data.length);
-				transformed_packet.set(packed_bytes, 0);
-				transformed_packet.set(symbol_data, packed_bytes.length);
+
+				// Create the base packet
+				const base_packet_length = packed_bytes.length + symbol_data.length;
+				let final_packet;
+
+				if (strategy.oti.placement === "encoding_packet" && oti_for_packets) {
+					// Prepend OTI to the packet
+					final_packet = new Uint8Array(oti_for_packets.length + base_packet_length);
+					final_packet.set(oti_for_packets, 0);
+					final_packet.set(packed_bytes, oti_for_packets.length);
+					final_packet.set(symbol_data, oti_for_packets.length + packed_bytes.length);
+				} else {
+					final_packet = new Uint8Array(base_packet_length);
+					final_packet.set(packed_bytes, 0);
+					final_packet.set(symbol_data, packed_bytes.length);
+				}
+
+				transformed_packet = final_packet;
 			}
 
 			yield transformed_packet;
@@ -516,7 +569,7 @@ export const encode = ({ raptorq_raw }, { options, data, strategy }) => {
 	})();
 
 	return {
-		oti: process_oti(raw_result.oti),
+		oti: strategy.oti.placement === "encoding_packet" ? Promise.resolve(undefined) : process_oti(raw_result.oti),
 		oti_spec: raw_result.oti,
 		encoding_packets: transformed_encoding_packets,
 	};

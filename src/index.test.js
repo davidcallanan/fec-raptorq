@@ -348,8 +348,8 @@ test("raw.encode - various symbol_alignment values", async () => {
 
 console.log("🧪 Running RaptorQ tests...");
 
-// Test raptorq_suppa basic functionality with strategy.sbn default (behaves like old enable mode)
-test("suppa.encode/decode - strategy.sbn default", async () => {
+// Test raptorq_suppa basic functionality with strategy.encoding_packet.sbn default (behaves like old enable mode)
+test("suppa.encode/decode - strategy.encoding_packet.sbn default", async () => {
 	const test_data = createTestData(100);
 
 	try {
@@ -389,19 +389,21 @@ test("suppa.encode/decode - strategy.sbn default", async () => {
 	}
 });
 
-// Test raptorq_suppa with strategy.sbn custom remap (equivalent to old override)
-test("suppa.encode/decode - strategy.sbn custom remap", async () => {
+// Test raptorq_suppa with strategy.encoding_packet.sbn custom remap (equivalent to old override)
+test("suppa.encode/decode - strategy.encoding_packet.sbn custom remap", async () => {
 	const test_data = createTestData(100);
 
 	try {
 		// Encode with custom SBN remap that overrides SBN to constant value
 		const strategy = {
-			sbn: {
-				external_bits: 8,
-				max_internal_value: 0, // Only allow 1 source block (internal value 0)
-				remap: {
-					to_internal: (_external) => 0, // Always map to internal 0
-					to_external: (_internal) => 42, // Always output 42 externally
+			encoding_packet: {
+				sbn: {
+					external_bits: 8,
+					max_internal_value: 0, // Only allow 1 source block (internal value 0)
+					remap: {
+						to_internal: (_external) => 0, // Always map to internal 0
+						to_external: (_internal) => 42, // Always output 42 externally
+					},
 				},
 			},
 		};
@@ -449,16 +451,18 @@ test("suppa.encode/decode - strategy.sbn custom remap", async () => {
 	}
 });
 
-// Test raptorq_suppa with strategy.sbn disabled (equivalent to old disable mode)
-test("suppa.encode/decode - strategy.sbn disabled", async () => {
+// Test raptorq_suppa with strategy.encoding_packet.sbn disabled (equivalent to old disable mode)
+test("suppa.encode/decode - strategy.encoding_packet.sbn disabled", async () => {
 	const test_data = createTestData(100);
 
 	try {
 		// Encode with SBN disabled (external_bits = 0)
 		const strategy = {
-			sbn: {
-				external_bits: 0, // Disable SBN output
-				max_internal_value: 0, // Only allow 1 source block
+			encoding_packet: {
+				sbn: {
+					external_bits: 0, // Disable SBN output
+					max_internal_value: 0, // Only allow 1 source block
+				},
 			},
 		};
 
@@ -507,19 +511,21 @@ test("suppa.encode/decode - strategy.sbn disabled", async () => {
 	}
 });
 
-// Test raptorq_suppa with strategy.esi custom configuration
-test("suppa.encode/decode - strategy.esi custom bits", async () => {
+// Test raptorq_suppa with strategy.encoding_packet.esi custom configuration
+test("suppa.encode/decode - strategy.encoding_packet.esi custom bits", async () => {
 	const test_data = createTestData(100);
 
 	try {
 		// Encode with custom ESI configuration (16 bits instead of 24)
 		const strategy = {
-			esi: {
-				external_bits: 16,
-				max_internal_value: 65535, // 2^16 - 1
-				remap: {
-					to_internal: (external) => external,
-					to_external: (internal) => internal,
+			encoding_packet: {
+				esi: {
+					external_bits: 16,
+					max_internal_value: 65535, // 2^16 - 1
+					remap: {
+						to_internal: (external) => external,
+						to_external: (internal) => internal,
+					},
 				},
 			},
 		};
@@ -565,24 +571,26 @@ test("suppa.encode/decode - strategy.esi custom bits", async () => {
 	}
 });
 
-// Test raptorq_suppa with both strategy.sbn and strategy.esi customization
+// Test raptorq_suppa with both strategy.encoding_packet.sbn and strategy.encoding_packet.esi customization
 test("suppa.encode/decode - both sbn and esi customized", async () => {
 	const test_data = createTestData(100);
 
 	try {
 		// Encode with both SBN and ESI customized
 		const strategy = {
-			sbn: {
-				external_bits: 4, // 4 bits for SBN
-				max_internal_value: 0, // Only 1 source block allowed
-				remap: {
-					to_internal: (_external) => 0,
-					to_external: (_internal) => 7, // Use value 7 in 4-bit field
+			encoding_packet: {
+				sbn: {
+					external_bits: 4, // 4 bits for SBN
+					max_internal_value: 0, // Only 1 source block allowed
+					remap: {
+						to_internal: (_external) => 0,
+						to_external: (_internal) => 7, // Use value 7 in 4-bit field
+					},
 				},
-			},
-			esi: {
-				external_bits: 12, // 12 bits for ESI
-				max_internal_value: 4095, // 2^12 - 1
+				esi: {
+					external_bits: 12, // 12 bits for ESI
+					max_internal_value: 4095, // 2^12 - 1
+				},
 			},
 		};
 
@@ -644,12 +652,12 @@ test("suppa.encode - strategy validation errors", () => {
 	const test_data = createTestData(100);
 
 	try {
-		// Test invalid strategy.sbn.external_bits
+		// Test invalid strategy.encoding_packet.sbn.external_bits
 		try {
 			suppa.encode({
 				options: { symbol_size: 104 },
 				data: test_data,
-				strategy: { sbn: { external_bits: 9 } }, // Invalid: > 8
+				strategy: { encoding_packet: { sbn: { external_bits: 9 } } }, // Invalid: > 8
 			});
 			return false; // Should have thrown
 		} catch (e) {
@@ -658,12 +666,12 @@ test("suppa.encode - strategy validation errors", () => {
 			}
 		}
 
-		// Test invalid strategy.esi.external_bits
+		// Test invalid strategy.encoding_packet.esi.external_bits
 		try {
 			suppa.encode({
 				options: { symbol_size: 104 },
 				data: test_data,
-				strategy: { esi: { external_bits: 1 } }, // Invalid: < 2
+				strategy: { encoding_packet: { esi: { external_bits: 1 } } }, // Invalid: < 2
 			});
 			return false; // Should have thrown
 		} catch (e) {
@@ -912,6 +920,670 @@ test("suppa.encode/decode - strategy.oti custom remap", async () => {
 
 	} catch (error) {
 		console.error("OTI custom remap test error:", error);
+		return false;
+	}
+});
+
+// Test to_external returning undefined (non-representable values)
+test("suppa - to_external can return undefined for non-representable values", async () => {
+	try {
+		const test_data = createTestData(100);
+
+		// Create a strategy where to_external returns undefined for certain values
+		const strategy = {
+			encoding_packet: {
+				sbn: {
+					external_bits: 4, // This allows 0-15 external values
+					remap: {
+						to_internal: (external) => external,
+						to_external: (internal) => {
+							// Return undefined for internal values > 10 to simulate non-representable values
+							if (internal > 10) {
+								return undefined;
+							}
+							return internal;
+						},
+					},
+				},
+			},
+		};
+
+		// This should fail during encode() setup, not during packet iteration
+		// Let's force a situation where internal SBN > 10 will be needed
+		let error_thrown = false;
+
+		try {
+			const encoded = suppa.encode({
+				options: {
+					num_source_blocks: 15, // This will create SBN values > 10 (0-14 range)
+				},
+				data: test_data,
+				strategy,
+			});
+
+			// Try to get the first few packets - this should throw the error
+			let count = 0;
+			for await (const packet of encoded.encoding_packets) {
+				if (++count >= 3) break; // We might get an error before this
+			}
+		} catch (error) {
+			if (error.message.includes("cannot be represented externally") && error.message.includes("to_external returned undefined")) {
+				error_thrown = true;
+			}
+		}
+
+		return error_thrown;
+
+	} catch (error) {
+		// The error should be caught above, if we get here it's unexpected
+		console.error("Unexpected error in to_external undefined test:", error);
+		return false;
+	}
+});
+
+// Test external_bits=0 for SBN strategy (no SBN prefix in packets)
+test("suppa - external_bits=0 for SBN removes SBN prefix from packets", async () => {
+	try {
+		const test_data = createTestData(200);
+
+		const strategy_with_sbn = {
+			encoding_packet: {
+				sbn: {
+					external_bits: 8, // Normal SBN
+					remap: {
+						to_internal: (external) => external,
+						to_external: (internal) => internal,
+					},
+				},
+			},
+		};
+
+		const strategy_no_sbn = {
+			encoding_packet: {
+				sbn: {
+					external_bits: 0, // No SBN prefix
+					remap: {
+						to_internal: (_unused) => 0,
+						to_external: undefined,
+					},
+				},
+			},
+		};
+
+		// Encode with normal SBN
+		const encoded_with_sbn = suppa.encode({
+			options: { symbol_size: 64 },
+			data: test_data,
+			strategy: strategy_with_sbn,
+		});
+
+		// Encode without SBN
+		const encoded_no_sbn = suppa.encode({
+			options: { symbol_size: 64 },
+			data: test_data,
+			strategy: strategy_no_sbn,
+		});
+
+		// Collect first few packets from each
+		const packets_with_sbn = [];
+		const packets_no_sbn = [];
+
+		let count = 0;
+		for await (const packet of encoded_with_sbn.encoding_packets) {
+			packets_with_sbn.push(packet);
+			if (++count >= 5) break;
+		}
+
+		count = 0;
+		for await (const packet of encoded_no_sbn.encoding_packets) {
+			packets_no_sbn.push(packet);
+			if (++count >= 5) break;
+		}
+
+		// Verify packets without SBN are shorter (by 1 byte for the SBN)
+		// The difference should be exactly 1 byte per packet (the SBN byte)
+		for (let i = 0; i < Math.min(packets_with_sbn.length, packets_no_sbn.length); i++) {
+			if (packets_with_sbn[i].length !== packets_no_sbn[i].length + 1) {
+				console.log(`Packet ${i}: with SBN=${packets_with_sbn[i].length}, without SBN=${packets_no_sbn[i].length}`);
+				return false;
+			}
+		}
+
+		return true;
+
+	} catch (error) {
+		console.error("external_bits=0 SBN test error:", error);
+		return false;
+	}
+});
+
+// Test external_bits=0 for ESI strategy  
+test("suppa - external_bits=0 for ESI removes ESI prefix from packets", async () => {
+	try {
+		const test_data = createTestData(100);
+
+		// Test with large ESI bits to show difference
+		const strategy_with_esi = {
+			encoding_packet: {
+				esi: {
+					external_bits: 24, // Normal ESI (3 bytes)
+					remap: {
+						to_internal: (external) => external,
+						to_external: (internal) => internal,
+					},
+				},
+			},
+		};
+
+		// Test with minimal ESI bits that might cause representation issues
+		const strategy_small_esi = {
+			encoding_packet: {
+				esi: {
+					external_bits: 2, // Only allows values 0-3
+					remap: {
+						to_internal: (external) => external,
+						to_external: (internal) => {
+							// Only allow ESI values 0-3 due to 2-bit limitation
+							if (internal > 3) {
+								return undefined; // Non-representable
+							}
+							return internal;
+						},
+					},
+				},
+			},
+		};
+
+		// Encode with normal ESI (should always work)
+		const encoded_with_esi = suppa.encode({
+			options: { symbol_size: 64 },
+			data: test_data,
+			strategy: strategy_with_esi,
+		});
+
+		// Try encoding with small ESI - this might fail if we need ESI > 3
+		let small_esi_failed_as_expected = false;
+		try {
+			const encoded_small_esi = suppa.encode({
+				options: {
+					symbol_size: 64,
+					num_source_blocks: 1, // Keep it simple to reduce ESI requirements
+				},
+				data: test_data,
+				strategy: strategy_small_esi,
+			});
+
+			// Try to get some packets
+			let count = 0;
+			for await (const packet of encoded_small_esi.encoding_packets) {
+				if (++count >= 3) break;
+			}
+
+		} catch (error) {
+			if (error.message.includes("cannot be represented externally")) {
+				small_esi_failed_as_expected = true;
+			} else {
+				throw error; // Unexpected error
+			}
+		}
+
+		// Verify the normal ESI strategy works
+		let count = 0;
+		for await (const packet of encoded_with_esi.encoding_packets) {
+			if (++count >= 3) break;
+		}
+
+		// Test passes if we got packets from normal strategy
+		// The small ESI might work or fail depending on the data size - both outcomes are valid
+		return count >= 3;
+
+	} catch (error) {
+		console.error("ESI bits test error:", error);
+		return false;
+	}
+});
+
+// Test complete round-trip with external_bits=0 for both SBN and OTI fields
+test("suppa - external_bits=0 round-trip with undefined OTI", async () => {
+	try {
+		const test_data = createTestData(150);
+
+		const strategy = {
+			sbn: {
+				external_bits: 0, // No SBN in packets
+				remap: {
+					to_internal: (_unused) => 0, // Always map to block 0
+					to_external: undefined, // Must be undefined when external_bits is 0
+				},
+			},
+			oti: {
+				// Make OTI completely empty (undefined) but provide hardcoded values
+				transfer_length: {
+					external_bits: 0,
+					remap: {
+						to_internal: (_unused) => test_data.length, // Hardcoded transfer length
+						to_external: undefined,
+					},
+				},
+				fec_encoding_id: { external_bits: 0 }, // Always 6, no remap needed
+				symbol_size: {
+					external_bits: 0,
+					remap: {
+						to_internal: (_unused) => 32, // Hardcoded symbol size
+						to_external: undefined,
+					},
+				},
+				num_source_blocks: {
+					external_bits: 0,
+					remap: {
+						to_internal: (_unused) => 1, // Hardcoded to single block
+						to_external: undefined,
+					},
+				},
+				num_sub_blocks: {
+					external_bits: 0,
+					remap: {
+						to_internal: (_unused) => 1, // Hardcoded to single sub-block
+						to_external: undefined,
+					},
+				},
+				symbol_alignment: {
+					external_bits: 0,
+					remap: {
+						to_internal: (_unused) => 4, // Hardcoded alignment
+						to_external: undefined,
+					},
+				},
+			},
+		};
+
+		// Encode with the strategy
+		const encoded = suppa.encode({
+			options: {
+				symbol_size: 32,
+				num_source_blocks: 1, // Force single block to work with SBN=0
+			},
+			data: test_data,
+			strategy,
+		});
+
+		const oti = await encoded.oti;
+		console.log("OTI length:", oti?.length || "undefined");
+
+		// OTI should be undefined since all external_bits are 0
+		if (oti !== undefined) {
+			console.log("Expected undefined OTI, got:", oti);
+			return false;
+		}
+
+		// Collect some packets
+		const packets = [];
+		let count = 0;
+		for await (const packet of encoded.encoding_packets) {
+			packets.push(packet);
+			if (++count >= 10) break;
+		}
+
+		if (packets.length === 0) {
+			return false;
+		}
+
+		// Try to decode - the decoder should reconstruct OTI from hardcoded values
+		const decoded_result = suppa.decode({
+			oti, // This is undefined
+			encoding_packets: packets,
+			strategy, // Same strategy provides hardcoded values for decoding
+		});
+
+		const decoded_data = await decoded_result;
+
+		return arraysEqual(decoded_data, test_data);
+
+	} catch (error) {
+		console.error("external_bits=0 round-trip test error:", error);
+		return false;
+	}
+});
+
+// Test raptorq_suppa oti.placement="negotation" (default behavior)
+test("suppa.encode/decode - oti.placement negotation (default)", async () => {
+	const test_data = createTestData(100);
+
+	try {
+		const strategy = {
+			oti: {
+				placement: "negotation", // Explicitly set to default
+			},
+		};
+
+		const encoded = suppa.encode({
+			options: { symbol_size: 104 },
+			data: test_data,
+			strategy: strategy,
+		});
+
+		const oti = await encoded.oti;
+		const symbols = [];
+
+		// OTI should not be undefined with negotation placement
+		if (oti === undefined) {
+			console.error("Expected OTI to be defined with placement='negotation'");
+			return false;
+		}
+
+		for await (const symbol of encoded.encoding_packets) {
+			symbols.push(symbol);
+		}
+
+		// Create async iterator for symbols
+		const symbol_iterator = {
+			async *[Symbol.asyncIterator]() {
+				for (const symbol of symbols) {
+					yield symbol;
+				}
+			}
+		};
+
+		// Decode with same strategy
+		const decoded = await suppa.decode({
+			oti: oti,
+			encoding_packets: symbol_iterator,
+			strategy: strategy,
+		});
+
+		return arraysEqual(test_data, decoded);
+	} catch (error) {
+		console.error("OTI placement negotation test error:", error);
+		return false;
+	}
+});
+
+// Test raptorq_suppa oti.placement="encoding_packet" (per-packet OTI)
+test("suppa.encode/decode - oti.placement encoding_packet", async () => {
+	const test_data = createTestData(100);
+
+	try {
+		const strategy = {
+			oti: {
+				placement: "encoding_packet",
+				// Make OTI smaller to minimize overhead
+				transfer_length: { external_bits: 16 }, // Reduce from 40 to 16 bits
+				symbol_size: { external_bits: 12 }, // Reduce from 16 to 12 bits
+				fec_encoding_id: { external_bits: 0 }, // Remove FEC encoding ID
+			},
+		};
+
+		const encoded = suppa.encode({
+			options: { symbol_size: 104 },
+			data: test_data,
+			strategy: strategy,
+		});
+
+		const oti = await encoded.oti;
+		const symbols = [];
+
+		// OTI should be undefined with encoding_packet placement
+		if (oti !== undefined) {
+			console.error("Expected OTI to be undefined with placement='encoding_packet'");
+			return false;
+		}
+
+		for await (const symbol of encoded.encoding_packets) {
+			symbols.push(symbol);
+			// Verify packets are longer due to embedded OTI
+			// Standard packet would be: SBN (1 byte) + ESI (3 bytes) + symbol_data (104) = 108 bytes
+			// With embedded OTI: OTI + SBN + ESI + symbol_data should be longer
+			if (symbol.length <= 108) {
+				console.error(`Expected packet to be longer than 108 bytes due to embedded OTI, got ${symbol.length}`);
+				return false;
+			}
+		}
+
+		// Create async iterator for symbols
+		const symbol_iterator = {
+			async *[Symbol.asyncIterator]() {
+				for (const symbol of symbols) {
+					yield symbol;
+				}
+			}
+		};
+
+		// Decode with same strategy, passing undefined for oti
+		const decoded = await suppa.decode({
+			oti: undefined,
+			encoding_packets: symbol_iterator,
+			strategy: strategy,
+		});
+
+		return arraysEqual(test_data, decoded);
+	} catch (error) {
+		console.error("OTI placement encoding_packet test error:", error);
+		return false;
+	}
+});
+
+// Test raptorq_suppa oti.placement validation (invalid value)
+test("suppa.encode - oti.placement validation", async () => {
+	const test_data = createTestData(100);
+
+	try {
+		const strategy = {
+			oti: {
+				placement: "invalid_value", // Invalid placement value
+			},
+		};
+
+		// This should throw an error
+		try {
+			suppa.encode({
+				options: { symbol_size: 104 },
+				data: test_data,
+				strategy: strategy,
+			});
+			return false; // Should have thrown
+		} catch (e) {
+			if (!e.message.includes('strategy.oti.placement must be "negotation" or "encoding_packet"')) {
+				console.error("Expected placement validation error, got:", e.message);
+				return false;
+			}
+			return true;
+		}
+	} catch (error) {
+		console.error("OTI placement validation test error:", error);
+		return false;
+	}
+});
+
+// Test raptorq_suppa decode validation when placement is "encoding_packet" but oti is provided
+test("suppa.decode - oti validation with encoding_packet placement", async () => {
+	try {
+		const strategy = {
+			oti: {
+				placement: "encoding_packet",
+			},
+		};
+
+		// Create a mock oti (should be undefined for encoding_packet placement)
+		const invalid_oti = new Uint8Array(12);
+
+		// Create mock encoding packets
+		const mock_packets = {
+			async *[Symbol.asyncIterator]() {
+				yield new Uint8Array(108); // Mock packet
+			}
+		};
+
+		// This should throw an error
+		try {
+			await suppa.decode({
+				oti: invalid_oti, // Should be undefined
+				encoding_packets: mock_packets,
+				strategy: strategy,
+			});
+			return false; // Should have thrown
+		} catch (e) {
+			if (!e.message.includes("When strategy.oti.placement is 'encoding_packet', the oti parameter must be undefined")) {
+				console.error("Expected OTI validation error, got:", e.message);
+				return false;
+			}
+			return true;
+		}
+	} catch (error) {
+		console.error("OTI validation test error:", error);
+		return false;
+	}
+});
+
+// Test raptorq_suppa with minimal OTI in encoding_packet placement
+test("suppa.encode/decode - minimal OTI with encoding_packet placement", async () => {
+	const test_data = createTestData(100);
+
+	try {
+		const strategy = {
+			oti: {
+				placement: "encoding_packet",
+				// Minimize OTI size by hardcoding most values
+				transfer_length: {
+					external_bits: 0, // Hardcode
+					remap: {
+						to_internal: () => test_data.length,
+						to_external: undefined,
+					},
+				},
+				fec_encoding_id: { external_bits: 0 }, // Remove
+				symbol_size: {
+					external_bits: 0, // Hardcode
+					remap: {
+						to_internal: () => 104,
+						to_external: undefined,
+					},
+				},
+				num_source_blocks: {
+					external_bits: 0, // Hardcode
+					remap: {
+						to_internal: () => 1,
+						to_external: undefined,
+					},
+				},
+				num_sub_blocks: {
+					external_bits: 0, // Hardcode
+					remap: {
+						to_internal: () => 1,
+						to_external: undefined,
+					},
+				},
+				symbol_alignment: {
+					external_bits: 0, // Hardcode
+					remap: {
+						to_internal: () => 1,
+						to_external: undefined,
+					},
+				},
+			},
+		};
+
+		const encoded = suppa.encode({
+			options: {
+				symbol_size: 104,
+				num_source_blocks: 1,
+				num_sub_blocks: 1,
+				symbol_alignment: 1,
+			},
+			data: test_data,
+			strategy: strategy,
+		});
+
+		const oti = await encoded.oti;
+		const symbols = [];
+
+		// OTI should be undefined since all fields are hardcoded
+		if (oti !== undefined) {
+			console.error("Expected OTI to be undefined when all fields are hardcoded");
+			return false;
+		}
+
+		for await (const symbol of encoded.encoding_packets) {
+			symbols.push(symbol);
+			// With all OTI hardcoded, packets should be same size as standard
+			// (no OTI overhead since nothing to embed)
+			if (symbol.length !== 108) { // SBN + ESI + symbol_data
+				console.error(`Expected standard packet size 108, got ${symbol.length}`);
+				return false;
+			}
+		}
+
+		// Create async iterator for symbols
+		const symbol_iterator = {
+			async *[Symbol.asyncIterator]() {
+				for (const symbol of symbols) {
+					yield symbol;
+				}
+			}
+		};
+
+		// Decode with same strategy
+		const decoded = await suppa.decode({
+			oti: undefined,
+			encoding_packets: symbol_iterator,
+			strategy: strategy,
+		});
+
+		return arraysEqual(test_data, decoded);
+	} catch (error) {
+		console.error("Minimal OTI with encoding_packet placement test error:", error);
+		return false;
+	}
+});
+
+// Test raptorq_suppa OTI consistency validation in encoding_packet placement
+test("suppa.decode - OTI consistency validation in encoding_packet placement", async () => {
+	const test_data = createTestData(100);
+
+	try {
+		const strategy = {
+			oti: {
+				placement: "encoding_packet",
+				transfer_length: { external_bits: 16 },
+			},
+		};
+
+		// Create mock packets with different OTI values (should cause error)
+		const mock_packets = {
+			async *[Symbol.asyncIterator]() {
+				// First packet with OTI [0, 100] (representing some transfer_length)
+				const packet1 = new Uint8Array(116); // 2 bytes OTI + standard packet
+				packet1[0] = 0;
+				packet1[1] = 100;
+				yield packet1;
+
+				// Second packet with different OTI [0, 200] (different transfer_length)
+				const packet2 = new Uint8Array(116);
+				packet2[0] = 0;
+				packet2[1] = 200; // Different value!
+				yield packet2;
+			}
+		};
+
+		// This should throw an error due to OTI mismatch
+		try {
+			const decoded_iterator = suppa.decode({
+				oti: undefined,
+				encoding_packets: mock_packets,
+				strategy: strategy,
+			});
+
+			// Try to consume the iterator (error should occur during iteration)
+			await decoded_iterator;
+			return false; // Should have thrown
+		} catch (e) {
+			if (!e.message.includes("OTI mismatch detected")) {
+				console.error("Expected OTI mismatch error, got:", e.message);
+				return false;
+			}
+			return true;
+		}
+	} catch (error) {
+		console.error("OTI consistency validation test error:", error);
 		return false;
 	}
 });

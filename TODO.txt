@@ -1,2 +1,0 @@
-- ensure users can choose not to remap certain values, making them illegal
-- verify that setting external_bits to 0 works for all oti entries
