@@ -14,6 +14,7 @@ const decode_blocks = ({ binary_path }, input) => {
 	const block_queue = [];
 	let iterator_waiting = false;
 	let stream_ended = false;
+	const seen_sbns = new Set(); // Track duplicate SBNs
 
 	const blocks = {
 		async *[Symbol.asyncIterator]() {
@@ -64,6 +65,19 @@ const decode_blocks = ({ binary_path }, input) => {
 
 			// Extract block data
 			const block_data = new Uint8Array(buffer.slice(5, total_block_length));
+
+			// Check for duplicate SBNs
+			if (seen_sbns.has(sbn)) {
+				console.warn(`⚠️  DUPLICATE SBN DETECTED: SBN ${sbn} already processed! This should never happen in RaptorQ. Skipping duplicate.`);
+				console.warn(`Previous SBNs seen: ${Array.from(seen_sbns).join(", ")}`);
+
+				// Skip the duplicate block - remove the processed bytes and continue
+				buffer = buffer.slice(total_block_length);
+				continue;
+			} else {
+				seen_sbns.add(sbn);
+			}
+
 			const block = {
 				sbn: sbn,
 				data: block_data
@@ -146,6 +160,12 @@ const decode_blocks = ({ binary_path }, input) => {
 	return { blocks };
 };
 
+const get_oti_length_properly = (oti) => {
+	// using bigint properly
+	// this will use bigint:
+	return BigInt(oti[8]) | (BigInt(oti[9]) << 8n) | (BigInt(oti[10]) << 16n) | (BigInt(oti[11]) << 24n);
+}
+
 const decode_combined = ({ binary_path }, input) => {
 	return new Promise(async (resolve, reject) => {
 		try {
@@ -164,6 +184,9 @@ const decode_combined = ({ binary_path }, input) => {
 
 			// Calculate total length and combine
 			const total_length = combined_blocks.reduce((sum, block) => sum + block.length, 0);
+			// should be oti original data length
+			// const total_length = get_oti_length_properly(input.oti);
+			// const result = new Uint8Array(Number(total_length));
 			const result = new Uint8Array(total_length);
 			let offset = 0;
 

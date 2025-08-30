@@ -45,9 +45,25 @@ export interface StrategyOti {
 	symbol_alignment?: OtiFieldStrategy; // 0-8 bits, default 8
 }
 
+export interface TransferLengthTrimRemapFunctions {
+	to_internal: (external_value: number, context: { transfer_length: number }) => number;
+	to_external: (internal_value: number, context: { transfer_length: number }) => number;
+}
+
+export interface StrategyTransferLengthTrim {
+	external_bits?: number; // 0-40, default 0
+	remap?: TransferLengthTrimRemapFunctions;
+	pump_transfer_length?: (effective_transfer_length: number) => number;
+}
+
+export interface StrategyPayload {
+	transfer_length_trim?: StrategyTransferLengthTrim;
+}
+
 export interface Strategy {
 	encoding_packet?: StrategyEncodingPacket;
 	oti?: StrategyOti;
+	payload?: StrategyPayload;
 }
 
 export interface EncodeInput {
@@ -80,6 +96,7 @@ export interface DecodedBlock {
 
 export interface DecodeBlocksResult {
 	blocks: AsyncIterable<DecodedBlock>;
+	transfer_length_trim?: Promise<number>; // Present when strategy.payload.transfer_length_trim is used
 }
 
 export type DecodeResult = Promise<Uint8Array> | DecodeBlocksResult;

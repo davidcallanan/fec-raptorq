@@ -77,84 +77,9 @@ const create_safe_wrappers = (remap, external_bits, max_internal_bits) => {
 	return { to_internal_safe, to_external_safe };
 };
 
-export const encode = ({ raptorq_raw }, { options, data, strategy }) => {
-	strategy ??= {};
-	strategy.encoding_packet ??= {};
-	strategy.encoding_packet.sbn ??= {};
-	strategy.encoding_packet.esi ??= {};
-	strategy.oti ??= {};
-
-	// Set defaults and validate strategy.oti.placement
-	strategy.oti.placement ??= "negotation";
-	if (strategy.oti.placement !== "negotation" && strategy.oti.placement !== "encoding_packet") {
-		throw_error(error_user_payload(`Provided strategy.oti.placement must be "negotation" or "encoding_packet", got "${strategy.oti.placement}"`));
-	}
-
-	// Set defaults for strategy.encoding_packet.sbn
-	strategy.encoding_packet.sbn.external_bits ??= 8;
-	strategy.encoding_packet.sbn.remap ??= {};
-
-	// Validate strategy.encoding_packet.sbn
-	if (false
-		|| typeof strategy.encoding_packet.sbn.external_bits !== "number"
-		|| !Number.isInteger(strategy.encoding_packet.sbn.external_bits)
-		|| strategy.encoding_packet.sbn.external_bits < 0
-		|| strategy.encoding_packet.sbn.external_bits > 8
-	) {
-		throw_error(error_user_payload("Provided strategy.encoding_packet.sbn.external_bits must be integer between 0 and 8."));
-	}
-
-	// Set defaults for remap functions
-	if (strategy.encoding_packet.sbn.external_bits === 0) {
-		strategy.encoding_packet.sbn.remap.to_internal ??= (_unused) => 0;
-		strategy.encoding_packet.sbn.remap.to_external = undefined; // Cannot be present if max_bits is 0
-	} else {
-		strategy.encoding_packet.sbn.remap.to_internal ??= (external) => external;
-		strategy.encoding_packet.sbn.remap.to_external ??= (internal) => internal;
-	}
-
-	// Validate remap functions
-	if (typeof strategy.encoding_packet.sbn.remap.to_internal !== "function") {
-		throw_error(error_user_payload("Provided strategy.encoding_packet.sbn.remap.to_internal must be a function."));
-	}
-
-	if (strategy.encoding_packet.sbn.external_bits > 0) {
-		if (typeof strategy.encoding_packet.sbn.remap.to_external !== "function") {
-			throw_error(error_user_payload("Provided strategy.encoding_packet.sbn.remap.to_external must be a function when external_bits > 0."));
-		}
-	} else if (strategy.encoding_packet.sbn.remap.to_external !== undefined) {
-		throw_error(error_user_payload("Provided strategy.encoding_packet.sbn.remap.to_external cannot be present when external_bits is 0."));
-	}
-
+export const encode__ = ({ raptorq_raw }, { options, data, strategy }) => {
 	// Create safe wrappers for SBN (8 bits is the default max for internal SBN)
 	const sbn_wrappers = create_safe_wrappers(strategy.encoding_packet.sbn.remap, strategy.encoding_packet.sbn.external_bits, 8);
-
-	// Set defaults for strategy.encoding_packet.esi
-	strategy.encoding_packet.esi.external_bits ??= 24;
-	strategy.encoding_packet.esi.remap ??= {};
-
-	// Validate strategy.encoding_packet.esi
-	if (false
-		|| typeof strategy.encoding_packet.esi.external_bits !== "number"
-		|| !Number.isInteger(strategy.encoding_packet.esi.external_bits)
-		|| strategy.encoding_packet.esi.external_bits < 2
-		|| strategy.encoding_packet.esi.external_bits > 24
-	) {
-		throw_error(error_user_payload("Provided strategy.encoding_packet.esi.external_bits must be integer between 2 and 24."));
-	}
-
-	// Set defaults for ESI remap functions
-	strategy.encoding_packet.esi.remap.to_internal ??= (external) => external;
-	strategy.encoding_packet.esi.remap.to_external ??= (internal) => internal;
-
-	// Validate ESI remap functions
-	if (typeof strategy.encoding_packet.esi.remap.to_internal !== "function") {
-		throw_error(error_user_payload("Provided strategy.encoding_packet.esi.remap.to_internal must be a function."));
-	}
-
-	if (typeof strategy.encoding_packet.esi.remap.to_external !== "function") {
-		throw_error(error_user_payload("Provided strategy.encoding_packet.esi.remap.to_external must be a function."));
-	}
 
 	// Create safe wrappers for ESI (24 bits is the default max for internal ESI)
 	const esi_wrappers = create_safe_wrappers(strategy.encoding_packet.esi.remap, strategy.encoding_packet.esi.external_bits, 24);
@@ -300,9 +225,10 @@ export const encode = ({ raptorq_raw }, { options, data, strategy }) => {
 		// Process transfer_length
 		const transfer_length_bits = strategy.oti.transfer_length.external_bits;
 		if (transfer_length_bits > 0) {
-			const external_value = strategy.oti.transfer_length.remap?.to_external
-				? strategy.oti.transfer_length.remap.to_external(transfer_length)
-				: transfer_length;
+			const external_value = strategy.oti.transfer_length.remap.to_external(transfer_length);
+
+			// console.log(strategy.oti.transfer_length.remap.to_internal.toString(), strategy.oti.transfer_length.remap.to_external.toString());
+			// console.log("tl", transfer_length, "external_value", external_value);
 
 			// Validate external_value - handle large bit counts safely
 			const max_value = safe_max_value(transfer_length_bits);
@@ -573,4 +499,145 @@ export const encode = ({ raptorq_raw }, { options, data, strategy }) => {
 		oti_spec: raw_result.oti,
 		encoding_packets: transformed_encoding_packets,
 	};
+};
+
+
+export const encode = ({ raptorq_raw }, { options, data, strategy }) => {
+	strategy ??= {};
+	strategy.encoding_packet ??= {};
+	strategy.encoding_packet.sbn ??= {};
+	strategy.encoding_packet.esi ??= {};
+	strategy.oti ??= {};
+
+	// Set defaults and validate strategy.oti.placement
+	strategy.oti.placement ??= "negotation";
+	if (strategy.oti.placement !== "negotation" && strategy.oti.placement !== "encoding_packet") {
+		throw_error(error_user_payload(`Provided strategy.oti.placement must be "negotation" or "encoding_packet", got "${strategy.oti.placement}"`));
+	}
+
+	// Set defaults for strategy.encoding_packet.sbn
+	strategy.encoding_packet.sbn.external_bits ??= 8;
+	strategy.encoding_packet.sbn.remap ??= {};
+
+	// Validate strategy.encoding_packet.sbn
+	if (false
+		|| typeof strategy.encoding_packet.sbn.external_bits !== "number"
+		|| !Number.isInteger(strategy.encoding_packet.sbn.external_bits)
+		|| strategy.encoding_packet.sbn.external_bits < 0
+		|| strategy.encoding_packet.sbn.external_bits > 8
+	) {
+		throw_error(error_user_payload("Provided strategy.encoding_packet.sbn.external_bits must be integer between 0 and 8."));
+	}
+
+	// Set defaults for remap functions
+	if (strategy.encoding_packet.sbn.external_bits === 0) {
+		strategy.encoding_packet.sbn.remap.to_internal ??= (_unused) => 0;
+		strategy.encoding_packet.sbn.remap.to_external = undefined; // Cannot be present if max_bits is 0
+	} else {
+		strategy.encoding_packet.sbn.remap.to_internal ??= (external) => external;
+		strategy.encoding_packet.sbn.remap.to_external ??= (internal) => internal;
+	}
+
+	// Validate remap functions
+	if (typeof strategy.encoding_packet.sbn.remap.to_internal !== "function") {
+		throw_error(error_user_payload("Provided strategy.encoding_packet.sbn.remap.to_internal must be a function."));
+	}
+
+	if (strategy.encoding_packet.sbn.external_bits > 0) {
+		if (typeof strategy.encoding_packet.sbn.remap.to_external !== "function") {
+			throw_error(error_user_payload("Provided strategy.encoding_packet.sbn.remap.to_external must be a function when external_bits > 0."));
+		}
+	} else if (strategy.encoding_packet.sbn.remap.to_external !== undefined) {
+		throw_error(error_user_payload("Provided strategy.encoding_packet.sbn.remap.to_external cannot be present when external_bits is 0."));
+	}
+
+	// Set defaults for strategy.encoding_packet.esi
+	strategy.encoding_packet.esi.external_bits ??= 24;
+	strategy.encoding_packet.esi.remap ??= {};
+
+	// Validate strategy.encoding_packet.esi
+	if (false
+		|| typeof strategy.encoding_packet.esi.external_bits !== "number"
+		|| !Number.isInteger(strategy.encoding_packet.esi.external_bits)
+		|| strategy.encoding_packet.esi.external_bits < 2
+		|| strategy.encoding_packet.esi.external_bits > 24
+	) {
+		throw_error(error_user_payload("Provided strategy.encoding_packet.esi.external_bits must be integer between 2 and 24."));
+	}
+
+	// Set defaults for ESI remap functions
+	strategy.encoding_packet.esi.remap.to_internal ??= (external) => external;
+	strategy.encoding_packet.esi.remap.to_external ??= (internal) => internal;
+
+	// Validate ESI remap functions
+	if (typeof strategy.encoding_packet.esi.remap.to_internal !== "function") {
+		throw_error(error_user_payload("Provided strategy.encoding_packet.esi.remap.to_internal must be a function."));
+	}
+
+	if (typeof strategy.encoding_packet.esi.remap.to_external !== "function") {
+		throw_error(error_user_payload("Provided strategy.encoding_packet.esi.remap.to_external must be a function."));
+	}
+
+
+	if (strategy?.payload?.transfer_length_trim !== undefined) {
+		strategy.payload.transfer_length_trim.external_bits ??= 0;
+
+		if (strategy.payload.transfer_length_trim.external_bits === 0) {
+			return encode__({ raptorq_raw }, { options, data, strategy });
+		}
+
+		strategy.payload.transfer_length_trim.pump_transfer_length ??= (effective_transfer_length) => effective_transfer_length;
+
+		const external_bytes = Math.ceil(strategy.payload.transfer_length_trim.external_bits / 8);
+
+		strategy.oti ??= {};
+		strategy.oti.transfer_length ??= {};
+		strategy.oti.transfer_length.external_bits ??= 40;
+		strategy.oti.transfer_length.remap ??= {};
+		strategy.oti.transfer_length.remap.to_internal ??= (external) => external;
+		strategy.oti.transfer_length.remap.to_external ??= (internal) => internal;
+
+		const orig_transfer_length_to_internal = strategy.oti.transfer_length.remap.to_internal;
+		const orig_transfer_length_to_external = strategy.oti.transfer_length.remap.to_external;
+
+		// todo: down the road i will be updating all integer options to use bigint
+
+		strategy.oti.transfer_length.remap.to_internal = (external) => {
+			// note we do not involve external_bytes here, as it is easier for programmer to decide calculation on the effective transfer_length, as it is the effective transfer_length that they are likely ceiling based on symbol_size.
+			return orig_transfer_length_to_internal(external);
+		};
+
+		strategy.oti.transfer_length.remap.to_external = (internal) => {
+			return orig_transfer_length_to_external(internal);
+		};
+
+		const prefix = new Uint1Array(BigInt(data.length), strategy.payload.transfer_length_trim.external_bits).to_uint8_array();
+
+		if (external_bytes !== prefix.length) {
+			throw new Error("assertion failed.");
+		}
+
+		console.log("data length", data.length);
+		console.log("prefix bytes", external_bytes);
+
+		const effective_transfer_length = data.length + external_bytes;
+
+		console.log("effective transfer length", effective_transfer_length);
+
+		const desired_effective_transfer_length = strategy.payload.transfer_length_trim.pump_transfer_length(effective_transfer_length);
+
+		console.log("pumped length", desired_effective_transfer_length);
+
+		if (desired_effective_transfer_length < effective_transfer_length) {
+			throw_error(error_user_payload(`strategy.payload.transfer_length_trim.pump_transfer_length most return value >= original.`));
+		}
+
+		const new_data = new Uint8Array(desired_effective_transfer_length);
+		new_data.set(prefix, 0);
+		new_data.set(data, external_bytes);
+
+		return encode__({ raptorq_raw }, { options, data: new_data, strategy });
+	}
+
+	return encode__({ raptorq_raw }, { options, data, strategy });
 };

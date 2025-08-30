@@ -87,84 +87,9 @@ const obtain_async_iterator = (promise_like) => {
 	};
 };
 
-
-export const _decode = ({ raptorq_raw }, { usage, oti, encoding_packets, strategy }) => {
-	strategy ??= {};
-	strategy.encoding_packet ??= {};
-	strategy.encoding_packet.sbn ??= {};
-	strategy.encoding_packet.esi ??= {};
-	strategy.oti ??= {};
-
-	// Set defaults for strategy.encoding_packet.sbn
-	strategy.encoding_packet.sbn.external_bits ??= 8;
-	strategy.encoding_packet.sbn.remap ??= {};
-
-	// Validate strategy.encoding_packet.sbn
-	if (false
-		|| typeof strategy.encoding_packet.sbn.external_bits !== "number"
-		|| !Number.isInteger(strategy.encoding_packet.sbn.external_bits)
-		|| strategy.encoding_packet.sbn.external_bits < 0
-		|| strategy.encoding_packet.sbn.external_bits > 8
-	) {
-		throw_error(error_user_payload("Provided strategy.encoding_packet.sbn.external_bits must be integer between 0 and 8."));
-	}
-
-	// Set defaults for remap functions
-	if (strategy.encoding_packet.sbn.external_bits === 0) {
-		strategy.encoding_packet.sbn.remap.to_internal ??= (_unused) => 0;
-		strategy.encoding_packet.sbn.remap.to_external = undefined; // Cannot be present if max_bits is 0
-	} else {
-		strategy.encoding_packet.sbn.remap.to_internal ??= (external) => external;
-		strategy.encoding_packet.sbn.remap.to_external ??= (internal) => internal;
-	}
-
-	// Validate remap functions
-	if (typeof strategy.encoding_packet.sbn.remap.to_internal !== "function") {
-		throw_error(error_user_payload("Provided strategy.encoding_packet.sbn.remap.to_internal must be a function."));
-	}
-
-	if (strategy.encoding_packet.sbn.external_bits > 0) {
-		if (typeof strategy.encoding_packet.sbn.remap.to_external !== "function") {
-			throw_error(error_user_payload("Provided strategy.encoding_packet.sbn.remap.to_external must be a function when external_bits > 0."));
-		}
-	} else if (strategy.encoding_packet.sbn.remap.to_external !== undefined) {
-		throw_error(error_user_payload("Provided strategy.encoding_packet.sbn.remap.to_external cannot be present when external_bits is 0."));
-	}
-
-	// Create safe wrappers for SBN (8 bits is the default max for internal SBN)
-	const sbn_wrappers = create_safe_wrappers(strategy.encoding_packet.sbn.remap, strategy.encoding_packet.sbn.external_bits, 8);
-
-	// Set defaults for strategy.encoding_packet.esi
-	strategy.encoding_packet.esi.external_bits ??= 24;
-	strategy.encoding_packet.esi.remap ??= {};
-
-	// Validate strategy.encoding_packet.esi
-	if (false
-		|| typeof strategy.encoding_packet.esi.external_bits !== "number"
-		|| !Number.isInteger(strategy.encoding_packet.esi.external_bits)
-		|| strategy.encoding_packet.esi.external_bits < 2
-		|| strategy.encoding_packet.esi.external_bits > 24
-	) {
-		throw_error(error_user_payload("Provided strategy.encoding_packet.esi.external_bits must be integer between 2 and 24."));
-	}
-
-	// Set defaults for ESI remap functions
-	strategy.encoding_packet.esi.remap.to_internal ??= (external) => external;
-	strategy.encoding_packet.esi.remap.to_external ??= (internal) => internal;
-
-	// Validate ESI remap functions
-	if (typeof strategy.encoding_packet.esi.remap.to_internal !== "function") {
-		throw_error(error_user_payload("Provided strategy.encoding_packet.esi.remap.to_internal must be a function."));
-	}
-
-	if (typeof strategy.encoding_packet.esi.remap.to_external !== "function") {
-		throw_error(error_user_payload("Provided strategy.encoding_packet.esi.remap.to_external must be a function."));
-	}
-
-	// Create safe wrappers for ESI (24 bits is the default max for internal ESI)
-	const esi_wrappers = create_safe_wrappers(strategy.encoding_packet.esi.remap, strategy.encoding_packet.esi.external_bits, 24);
-	// Process OTI if strategy.oti is configured
-	const process_oti = (input_oti) => {
+// Factory function to create process_oti function for a given strategy
+const create_process_oti = (strategy) => {
+	return (input_oti) => {
 		if (input_oti !== undefined && !(input_oti instanceof Uint8Array)) {
 			throw new Error("why is input_oti not a Uint8Array?");
 		}
@@ -537,6 +462,87 @@ export const _decode = ({ raptorq_raw }, { usage, oti, encoding_packets, strateg
 
 		return reconstructed_oti;
 	};
+};
+
+
+export const _decode = ({ raptorq_raw }, { usage, oti, encoding_packets, strategy }) => {
+	strategy ??= {};
+	strategy.encoding_packet ??= {};
+	strategy.encoding_packet.sbn ??= {};
+	strategy.encoding_packet.esi ??= {};
+	strategy.oti ??= {};
+
+	// Set defaults for strategy.encoding_packet.sbn
+	strategy.encoding_packet.sbn.external_bits ??= 8;
+	strategy.encoding_packet.sbn.remap ??= {};
+
+	// Validate strategy.encoding_packet.sbn
+	if (false
+		|| typeof strategy.encoding_packet.sbn.external_bits !== "number"
+		|| !Number.isInteger(strategy.encoding_packet.sbn.external_bits)
+		|| strategy.encoding_packet.sbn.external_bits < 0
+		|| strategy.encoding_packet.sbn.external_bits > 8
+	) {
+		throw_error(error_user_payload("Provided strategy.encoding_packet.sbn.external_bits must be integer between 0 and 8."));
+	}
+
+	// Set defaults for remap functions
+	if (strategy.encoding_packet.sbn.external_bits === 0) {
+		strategy.encoding_packet.sbn.remap.to_internal ??= (_unused) => 0;
+		strategy.encoding_packet.sbn.remap.to_external = undefined; // Cannot be present if max_bits is 0
+	} else {
+		strategy.encoding_packet.sbn.remap.to_internal ??= (external) => external;
+		strategy.encoding_packet.sbn.remap.to_external ??= (internal) => internal;
+	}
+
+	// Validate remap functions
+	if (typeof strategy.encoding_packet.sbn.remap.to_internal !== "function") {
+		throw_error(error_user_payload("Provided strategy.encoding_packet.sbn.remap.to_internal must be a function."));
+	}
+
+	if (strategy.encoding_packet.sbn.external_bits > 0) {
+		if (typeof strategy.encoding_packet.sbn.remap.to_external !== "function") {
+			throw_error(error_user_payload("Provided strategy.encoding_packet.sbn.remap.to_external must be a function when external_bits > 0."));
+		}
+	} else if (strategy.encoding_packet.sbn.remap.to_external !== undefined) {
+		throw_error(error_user_payload("Provided strategy.encoding_packet.sbn.remap.to_external cannot be present when external_bits is 0."));
+	}
+
+	// Create safe wrappers for SBN (8 bits is the default max for internal SBN)
+	const sbn_wrappers = create_safe_wrappers(strategy.encoding_packet.sbn.remap, strategy.encoding_packet.sbn.external_bits, 8);
+
+	// Set defaults for strategy.encoding_packet.esi
+	strategy.encoding_packet.esi.external_bits ??= 24;
+	strategy.encoding_packet.esi.remap ??= {};
+
+	// Validate strategy.encoding_packet.esi
+	if (false
+		|| typeof strategy.encoding_packet.esi.external_bits !== "number"
+		|| !Number.isInteger(strategy.encoding_packet.esi.external_bits)
+		|| strategy.encoding_packet.esi.external_bits < 2
+		|| strategy.encoding_packet.esi.external_bits > 24
+	) {
+		throw_error(error_user_payload("Provided strategy.encoding_packet.esi.external_bits must be integer between 2 and 24."));
+	}
+
+	// Set defaults for ESI remap functions
+	strategy.encoding_packet.esi.remap.to_internal ??= (external) => external;
+	strategy.encoding_packet.esi.remap.to_external ??= (internal) => internal;
+
+	// Validate ESI remap functions
+	if (typeof strategy.encoding_packet.esi.remap.to_internal !== "function") {
+		throw_error(error_user_payload("Provided strategy.encoding_packet.esi.remap.to_internal must be a function."));
+	}
+
+	if (typeof strategy.encoding_packet.esi.remap.to_external !== "function") {
+		throw_error(error_user_payload("Provided strategy.encoding_packet.esi.remap.to_external must be a function."));
+	}
+
+	// Create safe wrappers for ESI (24 bits is the default max for internal ESI)
+	const esi_wrappers = create_safe_wrappers(strategy.encoding_packet.esi.remap, strategy.encoding_packet.esi.external_bits, 24);
+
+	// Create the process_oti function using the factory
+	const process_oti = create_process_oti(strategy);
 
 	const processed_oti = process_oti(oti);
 
@@ -669,8 +675,7 @@ const calculate_oti_size = (strategy) => {
 	return Math.ceil(total_bits / 8); // Convert bits to bytes
 };
 
-export const decode = ({ raptorq_raw }, { usage, oti, encoding_packets, strategy }) => {
-	strategy ??= {};
+export const decode__ = ({ raptorq_raw }, { usage, oti, encoding_packets, strategy }) => {
 	strategy.oti ??= {};
 
 	// Set defaults and validate strategy.oti.placement
@@ -756,4 +761,165 @@ export const decode = ({ raptorq_raw }, { usage, oti, encoding_packets, strategy
 
 	// Standard flow for "negotation" placement
 	return _decode({ raptorq_raw }, { usage, oti, encoding_packets, strategy });
+};
+
+export const decode = ({ raptorq_raw }, { usage, oti, encoding_packets, strategy }) => {
+	strategy ??= {};
+	strategy.payload ??= {};
+
+	if (strategy.payload.transfer_length_trim !== undefined) {
+		strategy.payload.transfer_length_trim.external_bits ??= 0;
+
+		if (strategy.payload.transfer_length_trim.external_bits === 0) {
+			return decode__({ raptorq_raw }, { usage, oti, encoding_packets, strategy });
+		}
+
+		strategy.payload.transfer_length_trim.pump_transfer_length ??= (effective_transfer_length) => effective_transfer_length;
+
+		const external_bytes = Math.ceil(strategy.payload.transfer_length_trim.external_bits / 8);
+
+		// Ensure OTI transfer_length strategy is set up to match encoding
+		strategy.oti ??= {};
+		strategy.oti.transfer_length ??= {};
+		strategy.oti.transfer_length.external_bits ??= 40;
+		strategy.oti.transfer_length.remap ??= {};
+		strategy.oti.transfer_length.remap.to_internal ??= (external) => external;
+		strategy.oti.transfer_length.remap.to_external ??= (internal) => internal;
+
+		const orig_transfer_length_to_internal = strategy.oti.transfer_length.remap.to_internal;
+		const orig_transfer_length_to_external = strategy.oti.transfer_length.remap.to_external;
+
+		// Mirror the encoding transform for OTI transfer_length
+		strategy.oti.transfer_length.remap.to_internal = (external) => {
+			// note we do not involve external_bytes here, as it is easier for programmer to decide calculation on the effective transfer_length, as it is the effective transfer_length that they are likely ceiling based on symbol_size.
+			return orig_transfer_length_to_internal(external);
+		};
+
+		strategy.oti.transfer_length.remap.to_external = (internal) => {
+			return orig_transfer_length_to_external(internal);
+		};
+
+		// Extract the RaptorQ internal transfer_length from OTI first for remap context
+		let raptorq_transfer_length;
+		if (oti !== undefined) {
+			// Process OTI to extract transfer_length 
+			const process_oti = create_process_oti(strategy);
+			const processed_oti = process_oti(oti);
+
+			// Extract transfer_length from the processed 12-byte OTI (first 5 bytes, big-endian)
+			const interm_raptorq_transfer_length = Number(
+				(BigInt(processed_oti[0]) << 32n) +
+				(BigInt(processed_oti[1]) << 24n) +
+				(BigInt(processed_oti[2]) << 16n) +
+				(BigInt(processed_oti[3]) << 8n) +
+				BigInt(processed_oti[4])
+			);
+
+			// raptorq_transfer_length = strategy.oti.transfer_length.remap.to_internal(interm_raptorq_transfer_length); // wait: to_internal was already called to get this oti
+			raptorq_transfer_length = interm_raptorq_transfer_length;
+
+			// console.log("tl", interm_raptorq_transfer_length, "->", raptorq_transfer_length);
+		} else {
+			// OTI is undefined, must extract from hardcoded strategy values
+			if (!strategy.oti.transfer_length?.remap?.to_internal) {
+				throw_error(error_user_payload("Cannot determine transfer_length for trim context when OTI is undefined"));
+			}
+			raptorq_transfer_length = strategy.oti.transfer_length.remap.to_internal(undefined);
+		}
+
+		// Decode first and then provide trim metadata
+		const raw_result = decode__({ raptorq_raw }, { usage, oti, encoding_packets, strategy });
+
+		// Handle different output formats
+		if (usage?.output_format === "blocks") {
+			const [transfer_length_trim, transfer_length_trim_res, transfer_length_trim_rej] = create_unsuspended_promise();
+
+			// For blocks output, extract trim length and provide it as metadata
+			return {
+				blocks: (async function* () {
+					let first_block_processed = false;
+
+					for await (const block of raw_result.blocks) {
+						if (block.sbn === 0) {
+							if (!first_block_processed) {
+								// Extract trim length from the first block's prefix
+								if (block.data.length < external_bytes) {
+									transfer_length_trim_rej(error_user_payload(`First block too small to contain transfer_length_trim prefix. Expected at least ${external_bytes} bytes, got ${block.data.length}`));
+									return;
+								}
+
+								const prefix_bytes = block.data.slice(0, external_bytes);
+								const prefix_array = new Uint1Array(external_bytes * 8);
+								prefix_array.get_underlying_buffer().set(prefix_bytes);
+								const stored_length = Number(prefix_array.to_bigint());
+
+								// Apply to_internal remap function if provided
+								let final_trim_length = stored_length;
+								if (strategy.payload.transfer_length_trim.remap?.to_internal) {
+									// Use the actual RaptorQ transfer_length as context
+									final_trim_length = strategy.payload.transfer_length_trim.remap.to_internal(stored_length, { transfer_length: raptorq_transfer_length });
+								}
+
+								// Resolve the promise with the final trim length
+								transfer_length_trim_res(final_trim_length);
+
+								first_block_processed = true;
+							}
+
+							// For all blocks with sbn=0, strip the prefix
+							yield {
+								sbn: block.sbn,
+								data: block.data.slice(external_bytes),
+							};
+						} else {
+							// Pass through other blocks unchanged
+							yield {
+								sbn: block.sbn,
+								data: block.data
+							};
+						}
+					}
+
+					if (!first_block_processed) {
+						transfer_length_trim_rej(error_user_payload("No blocks received to extract transfer_length_trim from"));
+					}
+				})(),
+				transfer_length_trim,
+			};
+		} else {
+			// For combined output, extract trim length and provide trimmed result
+			return (async () => {
+				const decoded_data = await raw_result;
+
+				if (decoded_data.length < external_bytes) {
+					throw_error(error_user_payload(`Decoded data too small to contain transfer_length_trim prefix. Expected at least ${external_bytes} bytes, got ${decoded_data.length}`));
+				}
+
+				// Extract trim length from prefix
+				const prefix_bytes = decoded_data.slice(0, external_bytes);
+				const prefix_array = new Uint1Array(external_bytes * 8);
+				prefix_array.get_underlying_buffer().set(prefix_bytes);
+				const stored_length = Number(prefix_array.to_bigint());
+
+				// Apply to_internal remap function if provided
+				let final_trim_length = stored_length;
+				if (strategy.payload.transfer_length_trim.remap?.to_internal) {
+					// Use the actual RaptorQ transfer_length as context
+					final_trim_length = strategy.payload.transfer_length_trim.remap.to_internal(stored_length, { transfer_length: raptorq_transfer_length });
+				}
+
+				// Strip prefix and trim to specified length
+				const data_without_prefix = decoded_data.slice(external_bytes);
+
+				// Validate trim length
+				if (final_trim_length > data_without_prefix.length) {
+					throw_error(error_user_payload(`transfer_length_trim specifies length ${final_trim_length} but only ${data_without_prefix.length} bytes available after prefix`));
+				}
+
+				return data_without_prefix.slice(0, final_trim_length);
+			})();
+		}
+	}
+
+	return decode__({ raptorq_raw }, { usage, oti, encoding_packets, strategy });
 };

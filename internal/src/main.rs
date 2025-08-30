@@ -181,22 +181,15 @@ fn decode_data(args: &Args) -> Result<()> {
         packet_size, config.symbol_size());
     log_info!("Output format: blocks (always - SBN-prefixed for concurrency)");
     
-    use std::collections::HashMap;
+    // Create a single decoder that handles all source blocks internally
+    let mut decoder = Decoder::new(config);
+    let mut blocks_completed = 0;
+    let total_blocks = config.source_blocks() as usize;
     
-    // Create a decoder for each source block
-    let num_source_blocks = config.source_blocks() as usize;
-    let mut block_decoders: HashMap<u8, Decoder> = HashMap::new();
-    
-    // Calculate expected block size for each source block
-    let total_symbols_per_block = ((config.transfer_length() + config.symbol_size() as u64 - 1) 
-        / config.symbol_size() as u64) / num_source_blocks as u64;
-    
-    log_info!("Starting block-by-block decoding for {} source blocks...", num_source_blocks);
-    log_info!("Expected ~{} symbols per block", total_symbols_per_block);
+    log_info!("Starting decoding for {} source blocks...", config.source_blocks());
     
     let mut packets_processed = 0;
     let mut packet_buffer = vec![0u8; packet_size];
-    let mut blocks_completed = 0;
     
     loop {
         // Try to read exactly one packet from stdin
@@ -212,77 +205,42 @@ fn decode_data(args: &Args) -> Result<()> {
                 log_info!("Received packet {} for source block {} ({} bytes)", 
                     packets_processed, sbn, packet_size);
                 
-                // Create decoder for this source block if not exists
-                if !block_decoders.contains_key(&sbn) {
-                    // Calculate transfer length for this specific source block
-                    let remaining_length = config.transfer_length();
-                    let block_transfer_length = std::cmp::min(
-                        remaining_length - (sbn as u64 * total_symbols_per_block * config.symbol_size() as u64),
-                        total_symbols_per_block * config.symbol_size() as u64
-                    );
+                // Try to decode this specific block - output immediately if it completes
+                if let Some((block_sbn, block_data)) = decoder.try_decode_block(packet) {
+                    // This block just completed! Output it immediately
+                    blocks_completed += 1;
                     
-                    let block_config = ObjectTransmissionInformation::new(
-                        block_transfer_length,
-                        config.symbol_size(),
-                        1, // Single source block for this decoder
-                        config.sub_blocks(),
-                        config.symbol_alignment()
-                    );
+                    // Output: SBN (1 byte) + Block Size (4 bytes, little-endian) + block data
+                    let mut output = Vec::with_capacity(1 + 4 + block_data.len());
+                    output.push(block_sbn);
                     
-                    block_decoders.insert(sbn, Decoder::new(block_config));
-                    log_info!("  → Created decoder for source block {} (expected length: {} bytes)", 
-                        sbn, block_transfer_length);
-                }
-                
-                // Try to decode this block
-                if let Some(decoder) = block_decoders.get_mut(&sbn) {
-                    match decoder.decode(packet) {
-                        Some(decoded_data) => {
-                            // Block successfully decoded!
-                            blocks_completed += 1;
-                            
-                            // Output: SBN (1 byte) + Block Size (4 bytes, little-endian) + decoded data
-                            let mut output = Vec::with_capacity(1 + 4 + decoded_data.len());
-                            output.push(sbn);
-                            
-                            // Write block size as 4-byte little-endian u32
-                            let block_size = decoded_data.len() as u32;
-                            output.extend_from_slice(&block_size.to_le_bytes());
-                            
-                            output.extend_from_slice(&decoded_data);
-                            
-                            io::stdout().write_all(&output)
-                                .context("Failed to write decoded block to stdout")?;
-                            io::stdout().flush()
-                                .context("Failed to flush stdout")?;
-                                
-                            log_info!("✓ Successfully decoded source block {} ({} bytes) using {} total packets", 
-                                sbn, decoded_data.len(), packets_processed);
-                            
-                            // Remove decoder as it's no longer needed
-                            block_decoders.remove(&sbn);
-                            
-                            // Check if all blocks are completed
-                            if blocks_completed == num_source_blocks {
-                                log_info!("✓ All {} source blocks completed!", num_source_blocks);
-                                return Ok(());
-                            }
-                        }
-                        None => {
-                            // Need more packets for this block
-                            log_info!("  → Block {} needs more packets...", sbn);
-                        }
+                    // Write block size as 4-byte little-endian u32
+                    let block_size = block_data.len() as u32;
+                    output.extend_from_slice(&block_size.to_le_bytes());
+                    output.extend_from_slice(&block_data);
+                    
+                    io::stdout().write_all(&output)
+                        .context("Failed to write decoded block to stdout")?;
+                    io::stdout().flush()
+                        .context("Failed to flush stdout")?;
+                        
+                    log_info!("✓ Successfully decoded source block {} ({} bytes) using {} total packets", 
+                        block_sbn, block_data.len(), packets_processed);
+                        
+                    // Check if all blocks are now complete
+                    if blocks_completed == total_blocks {
+                        log_info!("✓ All {} source blocks completed!", total_blocks);
+                        return Ok(());
                     }
+                } else {
+                    // Block not yet complete, need more packets
+                    log_info!("  → Block {} needs more packets...", sbn);
                 }
             }
             Err(ref e) if e.kind() == io::ErrorKind::UnexpectedEof => {
                 // End of stream - no more packets available
                 log_info!("End of stream reached after {} packets", packets_processed);
-                if blocks_completed < num_source_blocks {
-                    bail!("Failed to decode all blocks: only {} of {} blocks completed", 
-                        blocks_completed, num_source_blocks);
-                }
-                return Ok(());
+                bail!("Failed to decode: stream ended before all blocks could be decoded");
             }
             Err(e) => {
                 bail!("Failed to read packet {} from stdin: {}", packets_processed + 1, e);

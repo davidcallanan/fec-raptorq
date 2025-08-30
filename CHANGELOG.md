@@ -1,5 +1,11 @@
 # Changelog
 
+**1.8.0**
+
+- Fix `num_source_blocks > 1` in `raptorq_raw` and `raptorq_suppa` interfaces.
+- Add `strategy.payload.transfer_length_trim` customization to `raptorq_suppa` interface.
+- Improve documentation.
+
 **1.7.0**
 
 - Breaking: Rename `strategy.sbn` to `strategy.encoding_packet.sbn` in `raptorq_suppa`.

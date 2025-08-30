@@ -1,0 +1,93 @@
+--- a/decoder.rs
++++ b/decoder.rs
+@@ -94,29 +94,74 @@
+         Some(result)
+     }
+ 
+-    #[cfg(not(feature = "python"))]
+-    pub fn add_new_packet(&mut self, packet: EncodingPacket) {
++    /// Add a packet and check if any block just completed
++    /// Returns Some((sbn, data)) if a block completed, None otherwise
++    pub fn try_decode_block(&mut self, packet: EncodingPacket) -> Option<(u8, Vec<u8>)> {
+         let block_number = packet.payload_id.source_block_number() as usize;
+-        if self.blocks[block_number].is_none() {
++        let sbn = packet.payload_id.source_block_number();
++        
++        // Check if this block was already completed
++        let was_completed = self.blocks[block_number].is_some();
++        
++        if !was_completed {
++            // Try to add this packet to the block decoder
+             self.blocks[block_number] =
+                 self.block_decoders[block_number].decode(iter::once(packet));
+-        }
+-    }
+-
+-    #[cfg(not(feature = "python"))]
+-    pub fn get_result(&self) -> Option<Vec<u8>> {
+-        for block in self.blocks.iter() {
+-            if block.is_none() {
+-                return None;
++            
++            // If this block just completed, return it with proper sizing
++            if let Some(block_data) = &self.blocks[block_number] {
++                let properly_sized_block = self.get_block_with_proper_size(sbn, block_data);
++                return Some((sbn, properly_sized_block));
+             }
+         }
++        None
++    }
+ 
+-        let mut result = vec![];
+-        for block in self.blocks.iter().flatten() {
+-            result.extend(block);
++    /// Get the properly sized block data for streaming output
++    /// This applies the same sizing logic as the original decode() method
++    pub fn get_block_with_proper_size(&self, sbn: u8, block_data: &[u8]) -> Vec<u8> {
++        let block_number = sbn as usize;
++        
++        // Calculate partitioning parameters (same as in constructor)
++        let kt = int_div_ceil(self.config.transfer_length(), self.config.symbol_size() as u64);
++        let (kl, ks, zl, _zs) = partition(kt, self.config.source_blocks());
++        
++        // Calculate what size this block should be
++        let expected_block_size = if (sbn as u32) < zl {
++            // This is a "large" block
++            (kl * self.config.symbol_size() as u32) as usize
++        } else {
++            // This is a "small" block
++            (ks * self.config.symbol_size() as u32) as usize
++        };
++        
++        // For the last block, we need special handling to respect transfer_length
++        let final_block_size = if sbn as u32 == self.config.source_blocks() as u32 - 1 {
++            // Calculate how many bytes should be in all previous blocks
++            let bytes_in_previous_blocks = if zl > 0 && sbn as u32 >= zl {
++                // Mixed: some large + some small blocks before this one
++                zl as u64 * (kl * self.config.symbol_size() as u32) as u64 +
++                (sbn as u32 - zl) as u64 * (ks * self.config.symbol_size() as u32) as u64
++            } else if zl > 0 {
++                // Only large blocks before this one
++                sbn as u64 * (kl * self.config.symbol_size() as u32) as u64
++            } else {
++                // Only small blocks before this one
++                sbn as u64 * (ks * self.config.symbol_size() as u32) as u64
++            };
++            
++            let remaining_bytes = self.config.transfer_length() - bytes_in_previous_blocks;
++            std::cmp::min(expected_block_size, remaining_bytes as usize)
++        } else {
++            expected_block_size
++        };
++        
++        // Return the block data truncated to the proper size
++        let mut result = block_data.to_vec();
++        if result.len() > final_block_size {
++            result.truncate(final_block_size);
+         }
+-        result.truncate(self.config.transfer_length() as usize);
+-        Some(result)
++        result
+     }
+ }
+ 

@@ -269,6 +269,23 @@ test("raw decode - block output format", async () => {
 			}
 		}
 
+		// verify the data matches the original
+
+		// const combinedData = new Uint8Array(originalData.length);
+		const total_length = blocks.reduce((sum, block) => sum + block.data.length, 0);
+		const combinedData = new Uint8Array(total_length);
+
+		let offset = 0;
+
+		for (const block of blocks.sort((a, b) => a.sbn - b.sbn)) {
+			combinedData.set(block.data, offset);
+			offset += block.data.length;
+		}
+
+		if (!arraysEqual(originalData, combinedData)) {
+			return false;
+		}
+
 		return true;
 
 	} catch (error) {
@@ -1584,6 +1601,436 @@ test("suppa.decode - OTI consistency validation in encoding_packet placement", a
 		}
 	} catch (error) {
 		console.error("OTI consistency validation test error:", error);
+		return false;
+	}
+});
+
+// Test transfer_length_trim - basic functionality
+test("suppa.encode/decode - transfer_length_trim basic functionality", async () => {
+	try {
+		const test_data = createTestData(100);
+
+		const strategy = {
+			payload: {
+				transfer_length_trim: {
+					external_bits: 8, // Use 8 bits for trim length
+					pump_transfer_length: (effective_length) => Math.ceil(effective_length / 32) * 32, // Round up to nearest 32
+				},
+			},
+		};
+
+		// Encode with transfer_length_trim
+		const encode_result = suppa.encode({
+			strategy,
+			data: test_data,
+			options: { symbol_size: 64 }
+		});
+
+		const oti = await encode_result.oti;
+		const encoding_packets = [];
+
+		for await (const packet of encode_result.encoding_packets) {
+			encoding_packets.push(packet);
+		}
+
+		console.log(`Encoded ${encoding_packets.length} packets with transfer_length_trim`);
+
+		// Decode with same strategy
+		const decode_result = suppa.decode({
+			strategy,
+			oti,
+			encoding_packets: (async function* () {
+				for (const packet of encoding_packets) {
+					yield packet;
+				}
+			})()
+		});
+
+		const decoded_data = await decode_result;
+
+		// Verify the decoded data matches the original
+		if (!arraysEqual(test_data, decoded_data)) {
+			console.error("Decoded data does not match original with transfer_length_trim");
+			return false;
+		}
+
+		console.log("transfer_length_trim basic functionality test passed");
+		return true;
+	} catch (error) {
+		console.error("transfer_length_trim basic test error:", error);
+		return false;
+	}
+});
+
+// Test transfer_length_trim - blocks output format
+test("suppa.encode/decode - transfer_length_trim with blocks output", async () => {
+	try {
+		const test_data = createTestData(800);
+
+		const strategy = {
+			oti: {
+				symbol_size: {
+					external_bits: 0,
+					remap: {
+						to_internal: () => 256, // hardcoded symbol_size
+						to_external: undefined,
+					},
+				},
+				transfer_length: {
+					external_bits: 32, // 8 bits less than the default 40
+					remap: {
+						to_internal: (value) => value * 256,
+						to_external: (value) => value / 256,
+						// due to reduction of 8 bits, we decide to force length to be multiple of 256 to cover the entire range
+						// which happens to line up nicely with our symbol_size
+					},
+				},
+			},
+			payload: {
+				transfer_length_trim: {
+					external_bits: 8, // we compress this down to 8 bits by making the trim only refer to the lower 8 bits, as `transfer_length` already covers the remaining bits (well, with a value 256 larger)
+					remap: {
+						to_internal: (external_value, { transfer_length }) => (transfer_length - 256) + external_value,
+						to_external: (internal_value, { transfer_length }) => internal_value - (transfer_length - 256)
+					},
+					// this function decides what internal transfer_length raptorq will use based on effective_transfer_length := the length of the data passed in to this interface + the size transfer_length_trim takes up, must return value >= effective_transfer_length
+					pump_transfer_length: (effective_transfer_length) => Math.ceil(effective_transfer_length / 256) * 256, // bring up to nearest 256 multiple
+				},
+			},
+		};
+
+		// Encode with transfer_length_trim
+		const encode_result = suppa.encode({
+			strategy,
+			data: test_data,
+			options: { symbol_size: 256, num_source_blocks: 2 } // Use 256 to match the strategy
+		});
+
+		const oti = await encode_result.oti;
+		const encoding_packets = [];
+
+		for await (const packet of encode_result.encoding_packets) {
+			encoding_packets.push(packet);
+		}
+
+		console.log("HAVE ENCODING PACKETS:")
+		// console.log(encoding_packets);
+
+		// Decode with blocks output format
+		const decode_result = suppa.decode({
+			usage: { output_format: "blocks" },
+			strategy,
+			oti,
+			encoding_packets: (async function* () {
+				for (const packet of encoding_packets) {
+					yield packet;
+				}
+			})()
+		});
+
+		const blocks = [];
+		for await (const block of decode_result.blocks) {
+			console.log(`Block ${block.sbn}: length=${block.data.length}, first few bytes=[${block.data.slice(0, 10).join(",")}]`);
+			blocks.push(block);
+		}
+
+		// Get the trim length from the promise
+		const trim_length = await decode_result.transfer_length_trim;
+		console.log(`Blocks test - trim_length: ${trim_length}, original length: ${test_data.length}`);
+
+		// Reconstruct data from blocks
+		let reconstructed_data = new Uint8Array(0);
+		for (const block of blocks.sort((a, b) => a.sbn - b.sbn)) {
+			console.log(`Assembling block ${block.sbn}, current length: ${reconstructed_data.length}, adding: ${block.data.length}`);
+			const combined = new Uint8Array(reconstructed_data.length + block.data.length);
+			combined.set(reconstructed_data);
+			combined.set(block.data, reconstructed_data.length);
+			reconstructed_data = combined;
+		}
+		console.log(`Blocks test - reconstructed length before trim: ${reconstructed_data.length}`);
+
+		// Apply trim using the trim length from the promise
+		reconstructed_data = reconstructed_data.slice(0, trim_length);
+		console.log(`Blocks test - reconstructed length after trim: ${reconstructed_data.length}`);
+
+		// Verify the reconstructed data matches the original
+		if (!arraysEqual(test_data, reconstructed_data)) {
+			console.log(test_data.join(","));
+			console.log("----");
+			console.log(reconstructed_data.join(","));
+			console.error("Reconstructed data from blocks does not match original with transfer_length_trim");
+			return false;
+		}
+
+		console.log("transfer_length_trim blocks output test passed");
+		return true;
+	} catch (error) {
+		console.error("transfer_length_trim blocks test error:", error);
+		return false;
+	}
+});
+
+// Test transfer_length_trim - with remap functions
+test("suppa.encode/decode - transfer_length_trim with remap functions", async () => {
+	try {
+		const test_data = createTestData(275);
+
+		const strategy = {
+			oti: {
+				symbol_size: {
+					external_bits: 0,
+					remap: {
+						to_internal: () => 256, // hardcoded symbol_size
+						to_external: undefined,
+					},
+				},
+				transfer_length: {
+					external_bits: 32, // 8 bits less than the default 40
+					remap: {
+						to_internal: (value) => value * 256,
+						to_external: (value) => value / 256,
+						// due to reduction of 8 bits, we decide to force length to be multiple of 256 to cover the entire range
+						// which happens to line up nicely with our symbol_size
+					},
+				},
+			},
+			payload: {
+				transfer_length_trim: {
+					external_bits: 8, // we compress this down to 8 bits by making the trim only refer to the lower 8 bits, as `transfer_length` already covers the remaining bits (well, with a value 256 larger)
+					remap: {
+						to_internal: (external_value, { transfer_length }) => (transfer_length - 256) + external_value,
+						to_external: (internal_value, { transfer_length }) => internal_value - (transfer_length - 256)
+					},
+					// this function decides what internal transfer_length raptorq will use based on effective_transfer_length := the length of the data passed in to this interface + the size transfer_length_trim takes up, must return value >= effective_transfer_length
+					pump_transfer_length: (effective_transfer_length) => Math.ceil(effective_transfer_length / 256) * 256, // bring up to nearest 256 multiple
+				},
+			},
+		};
+
+		// Encode with transfer_length_trim and remap
+		const encode_result = suppa.encode({
+			strategy,
+			data: test_data,
+			options: { symbol_size: 256 } // Use 256 to match the strategy
+		});
+
+		const oti = await encode_result.oti;
+		const oti_spec = await encode_result.oti_spec;
+
+		console.log("got oti", oti_spec);
+
+		const encoding_packets = [];
+
+		for await (const packet of encode_result.encoding_packets) {
+			encoding_packets.push(packet);
+		}
+
+		// Decode with same strategy
+		const decode_result = suppa.decode({
+			strategy,
+			oti,
+			encoding_packets: (async function* () {
+				for (const packet of encoding_packets) {
+					yield packet;
+				}
+			})()
+		});
+
+		const decoded_data = await decode_result;
+
+		// Verify the decoded data matches the original
+		if (!arraysEqual(test_data, decoded_data)) {
+			console.error("Decoded data does not match original with transfer_length_trim and remap");
+			return false;
+		}
+
+		console.log("transfer_length_trim with remap functions test passed");
+		return true;
+	} catch (error) {
+		console.error("transfer_length_trim remap test error:", error);
+		return false;
+	}
+});
+
+// Test transfer_length_trim - zero external_bits (disabled)
+test("suppa.encode/decode - transfer_length_trim disabled with zero external_bits", async () => {
+	try {
+		const test_data = createTestData(80);
+
+		const strategy = {
+			payload: {
+				transfer_length_trim: {
+					external_bits: 0, // Disabled
+				},
+			},
+		};
+
+		// Encode with disabled transfer_length_trim
+		const encode_result = suppa.encode({
+			strategy,
+			data: test_data,
+			options: { symbol_size: 40 }
+		});
+
+		const oti = await encode_result.oti;
+		const encoding_packets = [];
+
+		for await (const packet of encode_result.encoding_packets) {
+			encoding_packets.push(packet);
+		}
+
+		// Decode with same strategy
+		const decode_result = suppa.decode({
+			strategy,
+			oti,
+			encoding_packets: (async function* () {
+				for (const packet of encoding_packets) {
+					yield packet;
+				}
+			})()
+		});
+
+		const decoded_data = await decode_result;
+
+		// Verify the decoded data matches the original
+		if (!arraysEqual(test_data, decoded_data)) {
+			console.error("Decoded data does not match original with disabled transfer_length_trim");
+			return false;
+		}
+
+		console.log("transfer_length_trim disabled test passed");
+		return true;
+	} catch (error) {
+		console.error("transfer_length_trim disabled test error:", error);
+		return false;
+	}
+});
+
+// Test transfer_length_trim - error handling for corrupted prefix
+test("suppa.decode - transfer_length_trim error handling", async () => {
+	try {
+		// This test verifies that proper validation happens in combined output mode
+		const test_data = createTestData(50);
+
+		const strategy = {
+			payload: {
+				transfer_length_trim: {
+					external_bits: 8,
+					pump_transfer_length: (effective_length) => effective_length + 10, // Add some padding
+				},
+			},
+		};
+
+		// Encode normally
+		const encode_result = suppa.encode({
+			strategy,
+			data: test_data,
+			options: { symbol_size: 32 }
+		});
+
+		const oti = await encode_result.oti;
+		const encoding_packets = [];
+
+		for await (const packet of encode_result.encoding_packets) {
+			encoding_packets.push(packet);
+		}
+
+		// Use a remap function that would create an invalid trim length during decode
+		const bad_strategy = {
+			payload: {
+				transfer_length_trim: {
+					external_bits: 8,
+					remap: {
+						// This remap will make the trim length larger than available data
+						to_internal: (external_value, { transfer_length }) => external_value + 200, // Add way too much
+						to_external: (internal_value, { transfer_length }) => internal_value - 200
+					},
+					pump_transfer_length: (effective_length) => effective_length + 10,
+				},
+			},
+		};
+
+		try {
+			const decode_result = suppa.decode({
+				strategy: bad_strategy,
+				oti,
+				encoding_packets: (async function* () {
+					for (const packet of encoding_packets) {
+						yield packet;
+					}
+				})()
+			});
+
+			const decoded_data = await decode_result;
+			console.error("Expected error for invalid trim length but decode succeeded");
+			return false;
+		} catch (e) {
+			if (e.message.includes("transfer_length_trim specifies length")) {
+				console.log("transfer_length_trim error handling test passed");
+				return true;
+			} else {
+				console.error("Expected trim length error, got:", e.message);
+				return false;
+			}
+		}
+	} catch (error) {
+		console.error("transfer_length_trim error handling test error:", error);
+		return false;
+	}
+});
+
+// Test regular decoding with multiple source blocks
+test("raw decode - regular output format with multiple blocks", async () => {
+	const originalData = createTestData(200);
+
+	try {
+		// Encode the data with multiple source blocks
+		const encoded = raw.encode({
+			options: {
+				symbol_size: 48,
+				num_repair_symbols: 5,
+				num_source_blocks: 2  // Use 2 blocks to test multi-block scenario
+			},
+			data: originalData
+		});
+
+		// Collect the encoded data
+		const oti = await encoded.oti;
+		const symbols = [];
+		for await (const symbol of encoded.encoding_packets) {
+			symbols.push(symbol);
+		}
+
+		// Create mock async iterator for symbols
+		const symbolIterator = {
+			async *[Symbol.asyncIterator]() {
+				for (const symbol of symbols) {
+					yield symbol;
+				}
+			}
+		};
+
+		// Decode with regular format (default)
+		const decoded = raw.decode({
+			oti,
+			encoding_packets: symbolIterator
+		});
+
+		// Verify result has data Uint8Array
+		const decodedData = await decoded; // it was decoded.data. how does back and forth with AI 10 times not catch this.
+		if (!(decodedData instanceof Uint8Array)) {
+			return false;
+		}
+
+		// Verify the decoded data matches the original
+		if (!arraysEqual(originalData, decodedData)) {
+			return false;
+		}
+
+		return true;
+
+	} catch (error) {
+		console.error("Regular decoding test error:", error);
 		return false;
 	}
 });

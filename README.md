@@ -48,11 +48,11 @@ import { raptorq_raw } from "@davidcal/fec-raptorq";
 // Encode using custom options
 
 const options = {
-	symbol_size: 1400,        // (T) Size of each symbol in bytes (max: 65535); must be multiple of symbol_alignment
-	num_repair_symbols: 15,   // Number of repair symbols per source block
-	num_source_blocks: 1,     // (Z) Number of source blocks (max: 255)
-	num_sub_blocks: 1,        // (N) Number of sub-blocks per source block (max: 65535)
-	symbol_alignment: 8,      // (Al) Symbol alignment in bytes (min: 1, max: 255)
+    symbol_size: 1400,        // (T) Size of each symbol in bytes (max: 65535); must be multiple of symbol_alignment
+    num_repair_symbols: 15,   // Number of repair symbols per source block
+    num_source_blocks: 1,     // (Z) Number of source blocks (max: 255)
+    num_sub_blocks: 1,        // (N) Number of sub-blocks per source block (max: 65535)
+    symbol_alignment: 8,      // (Al) Symbol alignment in bytes (min: 1, max: 255)
 };
 
 const data = new Uint8Array(...);
@@ -62,7 +62,7 @@ const result = raptorq_raw.encode({ options, data });
 const oti = await result.oti;
 
 for await (const encoding_packet of result.encoding_packets) {
-	console.log(encoding_packet);
+    console.log(encoding_packet);
 }
 
 // Decode using OTI
@@ -70,14 +70,14 @@ for await (const encoding_packet of result.encoding_packets) {
 const oti = ...;
 
 const encoding_packets = (async function* () {
-  for await (const encoding_packet of some_data_source) {
-	  yield encoding_packet;
-  }
+    for await (const encoding_packet of some_data_source) {
+        yield encoding_packet;
+    }
 })();
 
 const data = await raptorq_raw.decode({
-	oti,
-	encoding_packets,
+    oti,
+    encoding_packets,
 });
 ```
 
@@ -92,9 +92,13 @@ See the relevant documentation page for the interface you are interested in usin
 - [`raptorq_raw`](docs/raptorq_raw.md) - Raw RFC 6330-compliant interface with no additional functionality.
 - [`raptorq_suppa`](docs/raptorq_suppa.md) - Wrapper interface that provides better pre-negotiated strategy options, giving the programmer more control and simplifying the decoding process.
 
+## Changelog
+
+See [`CHANGELOG.md`](CHANGELOG.md).
+
 ## Contributing
 
-See `CONTRIBUTING.md`.
+See [`CONTRIBUTING.md`](CONTRIBUTING.md).
 
 ## Future Plans
 

@@ -1,0 +1,2 @@
+- change everything to use bigints, including to_internal and to_external
+- verify that decoder bails out as soon as enough packets are received

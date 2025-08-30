@@ -6,6 +6,12 @@ echo "Welcome to this fantastic build process!"
 echo "Cleaning /volume/bin folder..."
 rm -rf /volume/bin/*
 
+# Apply appropriate patches without further delay
+echo "Applying patches..."
+patch -p1 raptorq/src/decoder.rs decoder.rs.patch
+
+echo "Patching complete."
+
 # Set default output directory if not provided
 if [ -z "$OUTPUT_DIR" ]; then
     OUTPUT_DIR="./bin"

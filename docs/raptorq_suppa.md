@@ -134,6 +134,26 @@ strategy: {
 },
 ```
 
+You can post-trim the output beyond the `transfer_length` that RaptorQ works with directly. Note that you likely want to specify `strategy.payload.transfer_length_trim.pump_transfer_length` in case you want the actual transfer length to differ from the passed in data, and if you do this, your data will be padded with zeros accordingly. See [Trimming Data](#trimming-data) for details.
+
+```
+strategy: {
+	payload: {
+		transfer_length_trim: {
+			external_bits: 8, // defaults to 0, can by anything between 0 and 40
+			remap: {
+				// remap function is special here, in the form (value, { transfer_length }) so it can use transfer_length as inspiration for calculations
+				to_internal,
+				to_external,
+			},
+		},
+	},
+},
+options: {
+	transfer_length: // override with what you want	
+},
+```
+
 ## Hardcoding Encoding Options
 
 Hardcoding encoding options is easy, and prevents these values from being present in the OTI, saving space and reducing the burden of negotation.
@@ -166,3 +186,53 @@ You must use the same `strategy` for decoding. If everything in the OTI is hardc
 
 The configuration is similar for other encoding options.
 
+## Trimming Data
+
+Trimming data separately from the RaptorQ algorithm is especially effective when `strategy.oti.placement === "encoding_block"`. This placement causes the `transfer_length` to be repeated in each encoding block. One might thus want to compress the value of `transfer_length` as follows, but this reduces the precision available for transfer length: (and thus further below we use the trim functionality to resolve this, be patient)
+
+```
+strategy.oti: {
+	placement: "encoding_block",
+	symbol_size: {
+		external_bits: 0,
+		remap: {
+			to_internal: () => 256, // hardcoded symbol_size
+			to_external: undefined,	
+		},
+	},
+	transfer_length: {
+		external_bits: 32, // 8 bits less than the default 40
+		remap: {
+			to_internal: (value) => value * 256,
+			to_external: (value) => value / 256,
+			// due to reduction of 8 bits, we decide to force length to be multiple of 256 to cover the entire range
+			// which happens to line up nicely with our symbol_size	
+		},
+	},
+},
+```
+
+How do we resolve this? If your data cannot fundamentally handle padding, then you can use `strategy.payload.transfer_length_trim` to trim this length right down to the desired length post-raptorq processing. It's worth noting that because the trim is done after the fact, the RaptorQ algorithm has to process the padded bits (a bit of a waste). So it's best that `pump_transfer_length` rounds up to nearest symbol_size to prevent wasted space that would defeat the intended purpose, as otherwise you could have extra packet(s) going out, and so such a 
+technique is followed in the example below:
+
+```
+strategy.payload: {
+	transfer_length_trim: {
+		// external_bits defaults to 0
+		external_bits: 8, // we compress this down to 8 bits by making the trim only refer to the lower 8 bits, as `transfer_length` already covers the remaining bits (well, with a value 256 larger)
+		remap: {
+			to_internal: (external_value, { transfer_length }) => (transfer_length - 256) + external_value,
+			to_external: (internal_value, { transfer_length }) => internal_value - (transfer_length - 256)
+		},
+		// this function decides what internal transfer_length raptorq will use based on effective_transfer_length := the length of the data passed in to this interface + the size transfer_length_trim takes up, must return value >= effective_transfer_length
+	pump_transfer_length: (effective_transfer_length) => Math.ceil(effective_transfer_length / 256) * 256, // bring up to nearest 256 multiple	
+	},
+	// the addition of transfer_length_trim is understood by this interface and will factor in this constant change in the encoding and decoding process, thus will not cause a change to the transfer_length stored in the OTI.
+},
+```
+
+This results in 8 bits being chopped off from each encoding packet (because symbol size is 256 [8 bits]), and only one occurence of 8 bit `transfer_length_trim` dumped at the beginning of the encoded payload.
+
+Important: If you choose output_format === "blocks" we will not trim the output down to the appropriate length, since blocks are coming in spontaneously and it's hard to reason about this. The `transfer_length` is instead passed to the programmer via `transfer_length_trim` promise in the output, allowing them to trim the output when circumstances allow it. [might modify rust code at a later date to reveal certain information to ease the javascript's ability to do this trimming automatically, if possible].
+
+Note that the `transfer_length` in the OTI is going to be the effective transfer length (data + transfer_length_trim prefix), we do this as the number is easier to work with when compressing via a multiplier and ceiling to nearest symbol_size.
