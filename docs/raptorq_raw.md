@@ -28,39 +28,39 @@ It is recommended that you configure each parameter to your use-case and not rel
 
 - **`symbol_size`**
   - **RFC 6330 (T)** - Size of each symbol in bytes.
-  - Default: `1440`.
-  - Range: `1` to `65535`.
+  - Default: `1440n`.
+  - Range: `1n` to `65535n`.
   - Should match your network's MTU for optimal transmission.
   - Must be a multiple of `symbol_alignment`.
   - Present in the outputted `oti`.
 
 - **`num_repair_symbols`**
   - Number of repair symbols generated per source block.
-  - Default: `15`.
+  - Default: `15n`.
   - Higher values provide more redundancy but increase overhead.
   - Not present in the outputted `oti` since RaptorQ is designed as a fountain code.
 
 - **`num_source_blocks`**
   - **RFC 6330 (Z)** - Number of source blocks to divide the data into.
-  - Default: `1`.
-  - Range: `1` to `255`.
+  - Default: `1n`.
+  - Range: `1n` to `255n`.
   - Use default for small files, increase for very large files to manage memory usage.
   - Each source block is processed independently, reducing memory usage (and improving concurrency?).
   - Present in the outputted `oti`.
 
 - **`num_sub_blocks`**
   - **RFC 6330 (N)** - Number of sub-blocks per source block.
-  - Default: `1`.
-  - Range: `1` to `65535`.
+  - Default: `1n`.
+  - Range: `1n` to `65535n`.
   - Present in the outputted `oti`.
 
 - **`symbol_alignment`**
   - **RFC 6330 (Al)** - Symbol alignment in bytes.
-  - Default: `8`.
-  - Range: `1` to `255`
-  - Common values: `1`, `4`, `8`
-  - Use `8` for optimal performance on most 64-bit systems.
-  - Use `4` for optimal performance on 32-bit systems.
+  - Default: `8n`.
+  - Range: `1n` to `255n`
+  - Common values: `1n`, `4n`, `8n`
+  - Use `8n` for optimal performance on most 64-bit systems.
+  - Use `4n` for optimal performance on 32-bit systems.
   - `symbol_size` must be divisible by this value.
   - Present in the outputted `oti`.
   
@@ -89,7 +89,7 @@ Return value if `usage.output_format === "combined"`:
 Return value if `usage.output_format === "blocks"`:
 
  - `blocks`: An async iterator of objects corresponding to the individual RFC 6330 blocks. These blocks may arrive out-of-order as soon as they are available, fostering concurrency.
-   - `sbn`: An unsigned 8-bit integer `number` corresponding to the "SBN" (Source Block Number) as defined by RFC 6330.
+   - `sbn`: An unsigned 8-bit integer `bigint` corresponding to the "SBN" (Source Block Number) as defined by RFC 6330.
    - `data`: A `Uint8Array` of the portion of the originally encoded data corresponding to this block.
 
 There are no manual decoding options available, as decoding is configured via the OTI. If you'd like a simpler interface that bakes OTI negotation into the encoding packets directly, see the supplementary [`raptorq_suppa`](raptorq_suppa.md) interface.
@@ -112,7 +112,7 @@ const result = raptorq_raw.decode({
 });
 
 for await (const block of result.blocks) {
-  console.log(block.sbn); // (between 0 and 255)
+  console.log(block.sbn); // (between 0n and 255n)
   console.log(block.data);
 }
 ```

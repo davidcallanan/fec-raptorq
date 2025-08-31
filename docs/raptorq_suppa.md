@@ -74,18 +74,18 @@ When providing custom `remap.to_internal` and `remap.to_external` functions, the
 ```
 strategy.encoding_packet: {
 	sbn: {
-		external_bits: 7, // (default 8, min 0, max 8) controls how many bits are used in the SBN representation
+		external_bits: 7n, // (default 8n, min 0n, max 8n) controls how many bits are used in the SBN representation
 		remap: {
-			to_internal: (_unused) => 0, // must return between 0 and 255 (8-bit max for SBN).
-			to_external: (_unused) => 23, // cannot be present if external_bits is 0, must fit within external_bits.
-			// it is assumed the developer provides to_internal and to_external as polar opposites that reverse each other. the argument is the internal/external to be converted, but the argument is not used if external_bits is 0.
-		}, // default for remap is identity function (unless external_bits is 0, then default for to_external becomes undefined)!
-		// note the encoding options num_source_blocks checks if sbn as num_source_blocks - 1 works, but must work for all possible sbns but we dont check that for you.
+			to_internal: (_unused) => 0n, // must return between 0n and 255n (8-bit max for SBN).
+			to_external: (_unused) => 23n, // cannot be present if external_bits is 0n, must fit within external_bits.
+			// it is assumed the developer provides to_internal and to_external as polar opposites that reverse each other. the argument is the internal/external to be converted, but the argument is not used if external_bits is 0n.
+		}, // default for remap is identity function (unless external_bits is 0n, then default for to_external becomes undefined)!
+		// note the encoding options num_source_blocks checks if sbn as num_source_blocks - 1n works, but must work for all possible sbns but we dont check that for you.
 	},
 	esi: {
-		external_bits: 23, // can be set to between 2 and 24 (default is 24)
+		external_bits: 23n, // can be set to between 2n and 24n (default is 24n)
 		remap: {
-			// identical system to sbn, but must return between 0 and 2^24-1 (24-bit max for ESI)
+			// identical system to sbn, but must return between 0n and 2^24n-1n (24-bit max for ESI)
 		}
 		// note we calculate based on transfer length and symbol size how many symbols there are gonna be
 		// then we validate that this can be successfully converted using to_external
@@ -98,7 +98,7 @@ You can now customize the OTI output to make it more compact. Remapping between 
 ```
 strategy.oti: {
 	transfer_length: {
-		external_bits: 40, // can be between 0 and 40,
+		external_bits: 40n, // can be between 0n and 40n,
 		remap: {
 			to_internal,
 			to_external,
@@ -106,15 +106,15 @@ strategy.oti: {
 		// verifies using to_external that transfer length is allowed in options.
 	},
 	symbol_size: {
-		external_bits: 16, // can be between 0 and 16,
+		external_bits: 16n, // can be between 0n and 16n,
 		remap: {
 			to_internal,
 			to_external,
 		},
 	},
 	fec_encoding_id: {
-		external_bits: 0 // can only be 0 or 8 (omitted or present)
-		// this is useless if your system does not need interoperability between different fec algorithms, in which case you may set external_bits to 0
+		external_bits: 0n // can only be 0n or 8n (omitted or present)
+		// this is useless if your system does not need interoperability between different fec algorithms, in which case you may set external_bits to 0n
 		// no remap options allowed here
 	},
 	// ... all other oti values follow the same external_bits and remap format.
@@ -140,7 +140,7 @@ You can post-trim the output beyond the `transfer_length` that RaptorQ works wit
 strategy: {
 	payload: {
 		transfer_length_trim: {
-			external_bits: 8, // defaults to 0, can by anything between 0 and 40
+			external_bits: 8n, // defaults to 0n, can by anything between 0n and 40n
 			remap: {
 				// remap function is special here, in the form (value, { transfer_length }) so it can use transfer_length as inspiration for calculations
 				to_internal,
@@ -165,9 +165,9 @@ For example, to hardcode `transfer_length` to `1024`, we would use the following
 	strategy: {
 		oti: {
 			transfer_length: {
-				external_bits: 0, // omit from OTI
+				external_bits: 0n, // omit from OTI
 				remap: {
-					to_internal: () => 1024, // ensure the only acceptable value is 1024
+					to_internal: () => 1024n, // ensure the only acceptable value is 1024n
 					to_external: undefined, // omit from OTI
 				},
 			},
@@ -175,7 +175,7 @@ For example, to hardcode `transfer_length` to `1024`, we would use the following
 		// ...
 	},
 	options: {
-		transfer_length: 1024, // use the only acceptable value of 1024
+		transfer_length: 1024n, // use the only acceptable value of 1024n
 		// ...
 	},
 	// ...
@@ -194,18 +194,18 @@ Trimming data separately from the RaptorQ algorithm is especially effective when
 strategy.oti: {
 	placement: "encoding_block",
 	symbol_size: {
-		external_bits: 0,
+		external_bits: 0n,
 		remap: {
-			to_internal: () => 256, // hardcoded symbol_size
+			to_internal: () => 256n, // hardcoded symbol_size
 			to_external: undefined,	
 		},
 	},
 	transfer_length: {
-		external_bits: 32, // 8 bits less than the default 40
+		external_bits: 32n, // 8 bits less than the default 40n
 		remap: {
-			to_internal: (value) => value * 256,
-			to_external: (value) => value / 256,
-			// due to reduction of 8 bits, we decide to force length to be multiple of 256 to cover the entire range
+			to_internal: (value) => value * 256n,
+			to_external: (value) => value / 256n,
+			// due to reduction of 8 bits, we decide to force length to be multiple of 256n to cover the entire range
 			// which happens to line up nicely with our symbol_size	
 		},
 	},
@@ -218,18 +218,20 @@ technique is followed in the example below:
 ```
 strategy.payload: {
 	transfer_length_trim: {
-		// external_bits defaults to 0
-		external_bits: 8, // we compress this down to 8 bits by making the trim only refer to the lower 8 bits, as `transfer_length` already covers the remaining bits (well, with a value 256 larger)
+		// external_bits defaults to 0n
+		external_bits: 8n, // we compress this down to 8 bits by making the trim only refer to the lower 8 bits, as `transfer_length` already covers the remaining bits (well, with a value 256n larger)
 		remap: {
-			to_internal: (external_value, { transfer_length }) => (transfer_length - 256) + external_value,
-			to_external: (internal_value, { transfer_length }) => internal_value - (transfer_length - 256)
+			to_internal: (external_value, { transfer_length }) => (transfer_length - 256n) + external_value,
+			to_external: (internal_value, { transfer_length }) => internal_value - (transfer_length - 256n)
 		},
 		// this function decides what internal transfer_length raptorq will use based on effective_transfer_length := the length of the data passed in to this interface + the size transfer_length_trim takes up, must return value >= effective_transfer_length
-	pump_transfer_length: (effective_transfer_length) => Math.ceil(effective_transfer_length / 256) * 256, // bring up to nearest 256 multiple	
+	pump_transfer_length: (effective_transfer_length) => bigint_ceil(effective_transfer_length, 256n) * 256n, // bring up to nearest 256n multiple	
 	},
 	// the addition of transfer_length_trim is understood by this interface and will factor in this constant change in the encoding and decoding process, thus will not cause a change to the transfer_length stored in the OTI.
 },
 ```
+
+(if you need reference implementation for bigint_ceil see `/src/uoe/bigint_ceil.js`).
 
 This results in 8 bits being chopped off from each encoding packet (because symbol size is 256 [8 bits]), and only one occurence of 8 bit `transfer_length_trim` dumped at the beginning of the encoded payload.
 

@@ -1,11 +1,11 @@
 // TypeScript declarations for RaptorQ Raw module
 
 export interface EncodeOptions {
-	symbol_size?: number;
-	num_repair_symbols?: number;
-	num_source_blocks?: number;
-	num_sub_blocks?: number;
-	symbol_alignment?: number;
+	symbol_size?: bigint;
+	num_repair_symbols?: bigint;
+	num_source_blocks?: bigint;
+	num_sub_blocks?: bigint;
+	symbol_alignment?: bigint;
 }
 
 export interface EncodeInput {
@@ -14,8 +14,8 @@ export interface EncodeInput {
 }
 
 export interface EncodingSymbol {
-	sbn: number;
-	esi: number;
+	sbn: bigint;
+	esi: bigint;
 	data: Uint8Array;
 }
 
@@ -35,7 +35,7 @@ export interface DecodeInput {
 }
 
 export interface DecodedBlock {
-	sbn: number;
+	sbn: bigint;
 	data: Uint8Array;
 }
 

@@ -1,6 +1,7 @@
 import { test } from "./uoe/test.js";
 import { compare_bytes } from "./uoe/compare_bytes.js";
 import { raptorq_raw as raw, raptorq_suppa as suppa } from "./index.js";
+import { bigint_ceil } from "./uoe/bigint_ceil.js";
 
 // Helper function to create test data
 function createTestData(size = 1000) {
@@ -77,11 +78,11 @@ test("raw.encode - basic encoding returns oti and symbols", async () => {
 test("raw.encode - custom configuration", async () => {
 	const testData = createTestData(500);
 	const config = {
-		symbol_size: 800,
-		num_repair_symbols: 10,
-		num_source_blocks: 1,
-		num_sub_blocks: 1,
-		symbol_alignment: 8
+		symbol_size: 800n,
+		num_repair_symbols: 10n,
+		num_source_blocks: 1n,
+		num_sub_blocks: 1n,
+		symbol_alignment: 8n,
 	};
 
 	try {
@@ -98,12 +99,12 @@ test("raw.encode - custom configuration", async () => {
 
 		// Calculate expected number of symbols based on configuration
 		// For 500 bytes with symbol_size 800: 1 source symbol + 10 repair symbols = 11 total
-		const expectedSymbolCount = Math.ceil(testData.length / config.symbol_size) + config.num_repair_symbols;
+		const expectedSymbolCount = Math.ceil(testData.length / Number(config.symbol_size)) + Number(config.num_repair_symbols);
 
 		for await (const symbol of result.encoding_packets) {
 			symbolCount++;
 			// Expected symbol size is symbol_size + 4 (for PayloadId)
-			if (symbol.length !== config.symbol_size + 4) {
+			if (symbol.length !== Number(config.symbol_size) + 4) {
 				return false;
 			}
 		}
@@ -127,7 +128,7 @@ test("raw.decode - basic decoding", async () => {
 
 	try {
 		// First encode the data
-		const encoded = raw.encode({ options: { symbol_size: 104 }, data: testData }); // 104 is divisible by 8
+		const encoded = raw.encode({ options: { symbol_size: 104n }, data: testData }); // 104 is divisible by 8
 
 		// Collect the encoded data
 		const oti = await encoded.oti;
@@ -169,7 +170,7 @@ test("raw encode/decode - round trip with small data", async () => {
 
 	try {
 		// Encode
-		const encoded = raw.encode({ options: { symbol_size: 48, num_repair_symbols: 5 }, data: originalData }); // 48 is divisible by 8
+		const encoded = raw.encode({ options: { symbol_size: 48n, num_repair_symbols: 5n }, data: originalData }); // 48 is divisible by 8
 		const oti = await encoded.oti;
 
 		// Collect symbols
@@ -211,9 +212,9 @@ test("raw decode - block output format", async () => {
 		// Encode the data with multiple source blocks for better testing
 		const encoded = raw.encode({
 			options: {
-				symbol_size: 48,
-				num_repair_symbols: 5,
-				num_source_blocks: 2  // Use 2 blocks to test block output
+				symbol_size: 48n,
+				num_repair_symbols: 5n,
+				num_source_blocks: 2n  // Use 2 blocks to test block output
 			},
 			data: originalData
 		});
@@ -251,7 +252,7 @@ test("raw decode - block output format", async () => {
 		// Collect blocks
 		const blocks = [];
 		for await (const block of decoded.blocks) {
-			if (typeof block.sbn !== 'number' || !(block.data instanceof Uint8Array)) {
+			if (typeof block.sbn !== 'bigint' || !(block.data instanceof Uint8Array)) {
 				return false;
 			}
 			blocks.push(block);
@@ -264,7 +265,7 @@ test("raw decode - block output format", async () => {
 
 		// Verify block SBNs are valid (0-based)
 		for (const block of blocks) {
-			if (block.sbn < 0 || block.sbn > 255) {
+			if (block.sbn < 0n || block.sbn > 255n) {
 				return false;
 			}
 		}
@@ -277,7 +278,7 @@ test("raw decode - block output format", async () => {
 
 		let offset = 0;
 
-		for (const block of blocks.sort((a, b) => a.sbn - b.sbn)) {
+		for (const block of blocks.sort((a, b) => Number(a.sbn - b.sbn))) {
 			combinedData.set(block.data, offset);
 			offset += block.data.length;
 		}
@@ -327,15 +328,15 @@ test("raw decode - invalid output format", () => {
 // Test various symbol_alignment values (removed 1 or 8 restriction)
 test("raw.encode - various symbol_alignment values", async () => {
 	const testData = createTestData(200);
-	const alignmentValues = [1, 2, 4, 5, 8, 16, 25, 40]; // Test various alignments including non-power-of-2
+	const alignmentValues = [1n, 2n, 4n, 5n, 8n, 16n, 25n, 40n]; // Test various alignments including non-power-of-2
 
 	for (const alignment of alignmentValues) {
 		try {
 			const config = {
-				symbol_size: alignment * 10, // Ensure divisible by alignment
-				num_repair_symbols: 5,
-				num_source_blocks: 1,
-				num_sub_blocks: 1,
+				symbol_size: alignment * 10n, // Ensure divisible by alignment
+				num_repair_symbols: 5n,
+				num_source_blocks: 1n,
+				num_sub_blocks: 1n,
 				symbol_alignment: alignment
 			};
 
@@ -372,7 +373,7 @@ test("suppa.encode/decode - strategy.encoding_packet.sbn default", async () => {
 	try {
 		// Encode with default strategy (should behave like raptorq_raw)
 		const encoded = suppa.encode({
-			options: { symbol_size: 104 },
+			options: { symbol_size: 104n },
 			data: test_data,
 			strategy: {} // Use all defaults
 		});
@@ -415,11 +416,11 @@ test("suppa.encode/decode - strategy.encoding_packet.sbn custom remap", async ()
 		const strategy = {
 			encoding_packet: {
 				sbn: {
-					external_bits: 8,
-					max_internal_value: 0, // Only allow 1 source block (internal value 0)
+					external_bits: 8n,
+					max_internal_value: 0n, // Only allow 1 source block (internal value 0)
 					remap: {
-						to_internal: (_external) => 0, // Always map to internal 0
-						to_external: (_internal) => 42, // Always output 42 externally
+						to_internal: (_external) => 0n, // Always map to internal 0n
+						to_external: (_internal) => 42n, // Always output 42n externally
 					},
 				},
 			},
@@ -427,8 +428,8 @@ test("suppa.encode/decode - strategy.encoding_packet.sbn custom remap", async ()
 
 		const encoded = suppa.encode({
 			options: {
-				symbol_size: 104,
-				num_source_blocks: 1, // Must be 1 since max_internal_value is 0
+				symbol_size: 104n,
+				num_source_blocks: 1n, // Must be 1 since max_internal_value is 0
 			},
 			data: test_data,
 			strategy: strategy,
@@ -477,16 +478,16 @@ test("suppa.encode/decode - strategy.encoding_packet.sbn disabled", async () => 
 		const strategy = {
 			encoding_packet: {
 				sbn: {
-					external_bits: 0, // Disable SBN output
-					max_internal_value: 0, // Only allow 1 source block
+					external_bits: 0n, // Disable SBN output
+					max_internal_value: 0n, // Only allow 1 source block
 				},
 			},
 		};
 
 		const encoded = suppa.encode({
 			options: {
-				symbol_size: 104,
-				num_source_blocks: 1, // Must be 1 since max_internal_value is 0
+				symbol_size: 104n,
+				num_source_blocks: 1n, // Must be 1 since max_internal_value is 0
 			},
 			data: test_data,
 			strategy: strategy,
@@ -537,8 +538,7 @@ test("suppa.encode/decode - strategy.encoding_packet.esi custom bits", async () 
 		const strategy = {
 			encoding_packet: {
 				esi: {
-					external_bits: 16,
-					max_internal_value: 65535, // 2^16 - 1
+					external_bits: 16n,
 					remap: {
 						to_internal: (external) => external,
 						to_external: (internal) => internal,
@@ -548,7 +548,7 @@ test("suppa.encode/decode - strategy.encoding_packet.esi custom bits", async () 
 		};
 
 		const encoded = suppa.encode({
-			options: { symbol_size: 104 },
+			options: { symbol_size: 104n },
 			data: test_data,
 			strategy: strategy,
 		});
@@ -597,24 +597,23 @@ test("suppa.encode/decode - both sbn and esi customized", async () => {
 		const strategy = {
 			encoding_packet: {
 				sbn: {
-					external_bits: 4, // 4 bits for SBN
-					max_internal_value: 0, // Only 1 source block allowed
+					external_bits: 4n, // 4 bits for SBN
 					remap: {
-						to_internal: (_external) => 0,
-						to_external: (_internal) => 7, // Use value 7 in 4-bit field
+						to_internal: (_external) => 0n,
+						to_external: (_internal) => 7n, // Use value 7 in 4-bit field
 					},
 				},
 				esi: {
-					external_bits: 12, // 12 bits for ESI
-					max_internal_value: 4095, // 2^12 - 1
+					external_bits: 12n, // 12 bits for ESI
+					max_internal_value: 4095n, // 2^12 - 1
 				},
 			},
 		};
 
 		const encoded = suppa.encode({
 			options: {
-				symbol_size: 104,
-				num_source_blocks: 1,
+				symbol_size: 104n,
+				num_source_blocks: 1n,
 			},
 			data: test_data,
 			strategy: strategy,
@@ -672,13 +671,13 @@ test("suppa.encode - strategy validation errors", () => {
 		// Test invalid strategy.encoding_packet.sbn.external_bits
 		try {
 			suppa.encode({
-				options: { symbol_size: 104 },
+				options: { symbol_size: 104n },
 				data: test_data,
-				strategy: { encoding_packet: { sbn: { external_bits: 9 } } }, // Invalid: > 8
+				strategy: { encoding_packet: { sbn: { external_bits: 9n } } }, // Invalid: > 8
 			});
 			return false; // Should have thrown
 		} catch (e) {
-			if (!e.message.includes("external_bits must be integer between 0 and 8")) {
+			if (!e.message.includes("bigint between 0n and 8n")) {
 				return false;
 			}
 		}
@@ -686,13 +685,13 @@ test("suppa.encode - strategy validation errors", () => {
 		// Test invalid strategy.encoding_packet.esi.external_bits
 		try {
 			suppa.encode({
-				options: { symbol_size: 104 },
+				options: { symbol_size: 104n },
 				data: test_data,
-				strategy: { encoding_packet: { esi: { external_bits: 1 } } }, // Invalid: < 2
+				strategy: { encoding_packet: { esi: { external_bits: 1n } } }, // Invalid: < 2
 			});
 			return false; // Should have thrown
 		} catch (e) {
-			if (!e.message.includes("external_bits must be integer between 2 and 24")) {
+			if (!e.message.includes("bigint between 2n and 24n")) {
 				return false;
 			}
 		}
@@ -713,13 +712,13 @@ test("suppa.encode/decode - strategy.oti custom bits", async () => {
 		const strategy = {
 			oti: {
 				transfer_length: {
-					external_bits: 24, // Reduced from 40 bits
+					external_bits: 24n, // Reduced from 40 bits
 				},
 				fec_encoding_id: {
-					external_bits: 0, // Remove 8 bits (omit)
+					external_bits: 0n, // Remove 8 bits (omit)
 				},
 				symbol_size: {
-					external_bits: 12, // Reduced from 16 bits
+					external_bits: 12n, // Reduced from 16 bits
 				},
 				// Keep other fields at default sizes: num_source_blocks (8), num_sub_blocks (16), symbol_alignment (8)
 			},
@@ -727,7 +726,7 @@ test("suppa.encode/decode - strategy.oti custom bits", async () => {
 
 		const encoded = suppa.encode({
 			options: {
-				symbol_size: 64,
+				symbol_size: 64n,
 			},
 			data: test_data,
 			strategy,
@@ -787,40 +786,40 @@ test("suppa.encode/decode - strategy.oti hardcoded values", async () => {
 		const strategy = {
 			oti: {
 				transfer_length: {
-					external_bits: 0, // Hardcoded - omit from OTI
+					external_bits: 0n, // Hardcoded - omit from OTI
 					remap: {
-						to_internal: () => test_data.length, // Hardcode to actual data length
+						to_internal: () => BigInt(test_data.length), // Hardcode to actual data length
 						to_external: undefined,
 					},
 				},
 				fec_encoding_id: {
-					external_bits: 0, // Remove from OTI (omit)
+					external_bits: 0n, // Remove from OTI (omit)
 				},
 				symbol_size: {
-					external_bits: 0, // Hardcoded - omit from OTI
+					external_bits: 0n, // Hardcoded - omit from OTI
 					remap: {
-						to_internal: () => 64, // Hardcode symbol size
+						to_internal: () => 64n, // Hardcode symbol size
 						to_external: undefined,
 					},
 				},
 				num_source_blocks: {
-					external_bits: 0, // Hardcoded - omit from OTI
+					external_bits: 0n, // Hardcoded - omit from OTI
 					remap: {
-						to_internal: () => 1, // Hardcode to 1 block
+						to_internal: () => 1n, // Hardcode to 1 block
 						to_external: undefined,
 					},
 				},
 				num_sub_blocks: {
-					external_bits: 0, // Hardcoded - omit from OTI
+					external_bits: 0n, // Hardcoded - omit from OTI
 					remap: {
-						to_internal: () => 1, // Hardcode to 1 sub-block
+						to_internal: () => 1n, // Hardcode to 1 sub-block
 						to_external: undefined,
 					},
 				},
 				symbol_alignment: {
-					external_bits: 0, // Hardcoded - omit from OTI
+					external_bits: 0n, // Hardcoded - omit from OTI
 					remap: {
-						to_internal: () => 1, // Hardcode alignment
+						to_internal: () => 1n, // Hardcode alignment
 						to_external: undefined,
 					},
 				},
@@ -829,7 +828,7 @@ test("suppa.encode/decode - strategy.oti hardcoded values", async () => {
 
 		const encoded = suppa.encode({
 			options: {
-				symbol_size: 64, // Must match hardcoded value
+				symbol_size: 64n, // Must match hardcoded value
 			},
 			data: test_data,
 			strategy,
@@ -886,10 +885,10 @@ test("suppa.encode/decode - strategy.oti custom remap", async () => {
 		const strategy = {
 			oti: {
 				symbol_size: {
-					external_bits: 8, // Reduced from 16 bits
+					external_bits: 8n, // Reduced from 16 bits
 					remap: {
-						to_internal: (external) => external * 8, // Multiply by 8 to get actual size
-						to_external: (internal) => internal / 8, // Divide by 8 to compress
+						to_internal: (external) => external * 8n, // Multiply by 8n to get actual size
+						to_external: (internal) => internal / 8n, // Divide by 8n to compress
 					},
 				},
 			},
@@ -897,7 +896,7 @@ test("suppa.encode/decode - strategy.oti custom remap", async () => {
 
 		const encoded = suppa.encode({
 			options: {
-				symbol_size: 128, // Should be represented as 128/8 = 16 in external form
+				symbol_size: 128n, // Should be represented as 128n/8n = 16n in external form
 			},
 			data: test_data,
 			strategy,
@@ -950,12 +949,12 @@ test("suppa - to_external can return undefined for non-representable values", as
 		const strategy = {
 			encoding_packet: {
 				sbn: {
-					external_bits: 4, // This allows 0-15 external values
+					external_bits: 4n, // This allows 0-15 external values
 					remap: {
 						to_internal: (external) => external,
 						to_external: (internal) => {
 							// Return undefined for internal values > 10 to simulate non-representable values
-							if (internal > 10) {
+							if (internal > 10n) {
 								return undefined;
 							}
 							return internal;
@@ -972,7 +971,7 @@ test("suppa - to_external can return undefined for non-representable values", as
 		try {
 			const encoded = suppa.encode({
 				options: {
-					num_source_blocks: 15, // This will create SBN values > 10 (0-14 range)
+					num_source_blocks: 15n, // This will create SBN values > 10 (0-14 range)
 				},
 				data: test_data,
 				strategy,
@@ -1006,7 +1005,7 @@ test("suppa - external_bits=0 for SBN removes SBN prefix from packets", async ()
 		const strategy_with_sbn = {
 			encoding_packet: {
 				sbn: {
-					external_bits: 8, // Normal SBN
+					external_bits: 8n, // Normal SBN
 					remap: {
 						to_internal: (external) => external,
 						to_external: (internal) => internal,
@@ -1018,9 +1017,9 @@ test("suppa - external_bits=0 for SBN removes SBN prefix from packets", async ()
 		const strategy_no_sbn = {
 			encoding_packet: {
 				sbn: {
-					external_bits: 0, // No SBN prefix
+					external_bits: 0n, // No SBN prefix
 					remap: {
-						to_internal: (_unused) => 0,
+						to_internal: (_unused) => 0n,
 						to_external: undefined,
 					},
 				},
@@ -1029,14 +1028,14 @@ test("suppa - external_bits=0 for SBN removes SBN prefix from packets", async ()
 
 		// Encode with normal SBN
 		const encoded_with_sbn = suppa.encode({
-			options: { symbol_size: 64 },
+			options: { symbol_size: 64n },
 			data: test_data,
 			strategy: strategy_with_sbn,
 		});
 
 		// Encode without SBN
 		const encoded_no_sbn = suppa.encode({
-			options: { symbol_size: 64 },
+			options: { symbol_size: 64n },
 			data: test_data,
 			strategy: strategy_no_sbn,
 		});
@@ -1083,7 +1082,7 @@ test("suppa - external_bits=0 for ESI removes ESI prefix from packets", async ()
 		const strategy_with_esi = {
 			encoding_packet: {
 				esi: {
-					external_bits: 24, // Normal ESI (3 bytes)
+					external_bits: 24n, // Normal ESI (3 bytes)
 					remap: {
 						to_internal: (external) => external,
 						to_external: (internal) => internal,
@@ -1096,12 +1095,12 @@ test("suppa - external_bits=0 for ESI removes ESI prefix from packets", async ()
 		const strategy_small_esi = {
 			encoding_packet: {
 				esi: {
-					external_bits: 2, // Only allows values 0-3
+					external_bits: 2n, // Only allows values 0-3
 					remap: {
 						to_internal: (external) => external,
 						to_external: (internal) => {
 							// Only allow ESI values 0-3 due to 2-bit limitation
-							if (internal > 3) {
+							if (internal > 3n) {
 								return undefined; // Non-representable
 							}
 							return internal;
@@ -1113,7 +1112,7 @@ test("suppa - external_bits=0 for ESI removes ESI prefix from packets", async ()
 
 		// Encode with normal ESI (should always work)
 		const encoded_with_esi = suppa.encode({
-			options: { symbol_size: 64 },
+			options: { symbol_size: 64n },
 			data: test_data,
 			strategy: strategy_with_esi,
 		});
@@ -1123,8 +1122,8 @@ test("suppa - external_bits=0 for ESI removes ESI prefix from packets", async ()
 		try {
 			const encoded_small_esi = suppa.encode({
 				options: {
-					symbol_size: 64,
-					num_source_blocks: 1, // Keep it simple to reduce ESI requirements
+					symbol_size: 64n,
+					num_source_blocks: 1n, // Keep it simple to reduce ESI requirements
 				},
 				data: test_data,
 				strategy: strategy_small_esi,
@@ -1167,47 +1166,47 @@ test("suppa - external_bits=0 round-trip with undefined OTI", async () => {
 
 		const strategy = {
 			sbn: {
-				external_bits: 0, // No SBN in packets
+				external_bits: 0n, // No SBN in packets
 				remap: {
-					to_internal: (_unused) => 0, // Always map to block 0
+					to_internal: (_unused) => 0n, // Always map to block 0
 					to_external: undefined, // Must be undefined when external_bits is 0
 				},
 			},
 			oti: {
 				// Make OTI completely empty (undefined) but provide hardcoded values
 				transfer_length: {
-					external_bits: 0,
+					external_bits: 0n,
 					remap: {
-						to_internal: (_unused) => test_data.length, // Hardcoded transfer length
+						to_internal: (_unused) => BigInt(test_data.length), // Hardcoded transfer length
 						to_external: undefined,
 					},
 				},
-				fec_encoding_id: { external_bits: 0 }, // Always 6, no remap needed
+				fec_encoding_id: { external_bits: 0n }, // Always 6, no remap needed
 				symbol_size: {
-					external_bits: 0,
+					external_bits: 0n,
 					remap: {
-						to_internal: (_unused) => 32, // Hardcoded symbol size
+						to_internal: (_unused) => 32n, // Hardcoded symbol size
 						to_external: undefined,
 					},
 				},
 				num_source_blocks: {
-					external_bits: 0,
+					external_bits: 0n,
 					remap: {
-						to_internal: (_unused) => 1, // Hardcoded to single block
+						to_internal: (_unused) => 1n, // Hardcoded to single block
 						to_external: undefined,
 					},
 				},
 				num_sub_blocks: {
-					external_bits: 0,
+					external_bits: 0n,
 					remap: {
-						to_internal: (_unused) => 1, // Hardcoded to single sub-block
+						to_internal: (_unused) => 1n, // Hardcoded to single sub-block
 						to_external: undefined,
 					},
 				},
 				symbol_alignment: {
-					external_bits: 0,
+					external_bits: 0n,
 					remap: {
-						to_internal: (_unused) => 4, // Hardcoded alignment
+						to_internal: (_unused) => 4n, // Hardcoded alignment
 						to_external: undefined,
 					},
 				},
@@ -1217,8 +1216,8 @@ test("suppa - external_bits=0 round-trip with undefined OTI", async () => {
 		// Encode with the strategy
 		const encoded = suppa.encode({
 			options: {
-				symbol_size: 32,
-				num_source_blocks: 1, // Force single block to work with SBN=0
+				symbol_size: 32n,
+				num_source_blocks: 1n, // Force single block to work with SBN=0
 			},
 			data: test_data,
 			strategy,
@@ -1274,7 +1273,7 @@ test("suppa.encode/decode - oti.placement negotation (default)", async () => {
 		};
 
 		const encoded = suppa.encode({
-			options: { symbol_size: 104 },
+			options: { symbol_size: 104n },
 			data: test_data,
 			strategy: strategy,
 		});
@@ -1324,14 +1323,14 @@ test("suppa.encode/decode - oti.placement encoding_packet", async () => {
 			oti: {
 				placement: "encoding_packet",
 				// Make OTI smaller to minimize overhead
-				transfer_length: { external_bits: 16 }, // Reduce from 40 to 16 bits
-				symbol_size: { external_bits: 12 }, // Reduce from 16 to 12 bits
-				fec_encoding_id: { external_bits: 0 }, // Remove FEC encoding ID
+				transfer_length: { external_bits: 16n }, // Reduce from 40 to 16 bits
+				symbol_size: { external_bits: 12n }, // Reduce from 16 to 12 bits
+				fec_encoding_id: { external_bits: 0n }, // Remove FEC encoding ID
 			},
 		};
 
 		const encoded = suppa.encode({
-			options: { symbol_size: 104 },
+			options: { symbol_size: 104n },
 			data: test_data,
 			strategy: strategy,
 		});
@@ -1393,7 +1392,7 @@ test("suppa.encode - oti.placement validation", async () => {
 		// This should throw an error
 		try {
 			suppa.encode({
-				options: { symbol_size: 104 },
+				options: { symbol_size: 104n },
 				data: test_data,
 				strategy: strategy,
 			});
@@ -1461,38 +1460,38 @@ test("suppa.encode/decode - minimal OTI with encoding_packet placement", async (
 				placement: "encoding_packet",
 				// Minimize OTI size by hardcoding most values
 				transfer_length: {
-					external_bits: 0, // Hardcode
+					external_bits: 0n, // Hardcode
 					remap: {
-						to_internal: () => test_data.length,
+						to_internal: () => BigInt(test_data.length),
 						to_external: undefined,
 					},
 				},
-				fec_encoding_id: { external_bits: 0 }, // Remove
+				fec_encoding_id: { external_bits: 0n }, // Remove
 				symbol_size: {
-					external_bits: 0, // Hardcode
+					external_bits: 0n, // Hardcode
 					remap: {
-						to_internal: () => 104,
+						to_internal: () => 104n,
 						to_external: undefined,
 					},
 				},
 				num_source_blocks: {
-					external_bits: 0, // Hardcode
+					external_bits: 0n, // Hardcode
 					remap: {
-						to_internal: () => 1,
+						to_internal: () => 1n,
 						to_external: undefined,
 					},
 				},
 				num_sub_blocks: {
-					external_bits: 0, // Hardcode
+					external_bits: 0n, // Hardcode
 					remap: {
-						to_internal: () => 1,
+						to_internal: () => 1n,
 						to_external: undefined,
 					},
 				},
 				symbol_alignment: {
-					external_bits: 0, // Hardcode
+					external_bits: 0n, // Hardcode
 					remap: {
-						to_internal: () => 1,
+						to_internal: () => 1n,
 						to_external: undefined,
 					},
 				},
@@ -1501,10 +1500,10 @@ test("suppa.encode/decode - minimal OTI with encoding_packet placement", async (
 
 		const encoded = suppa.encode({
 			options: {
-				symbol_size: 104,
-				num_source_blocks: 1,
-				num_sub_blocks: 1,
-				symbol_alignment: 1,
+				symbol_size: 104n,
+				num_source_blocks: 1n,
+				num_sub_blocks: 1n,
+				symbol_alignment: 1n,
 			},
 			data: test_data,
 			strategy: strategy,
@@ -1560,7 +1559,7 @@ test("suppa.decode - OTI consistency validation in encoding_packet placement", a
 		const strategy = {
 			oti: {
 				placement: "encoding_packet",
-				transfer_length: { external_bits: 16 },
+				transfer_length: { external_bits: 16n },
 			},
 		};
 
@@ -1613,8 +1612,8 @@ test("suppa.encode/decode - transfer_length_trim basic functionality", async () 
 		const strategy = {
 			payload: {
 				transfer_length_trim: {
-					external_bits: 8, // Use 8 bits for trim length
-					pump_transfer_length: (effective_length) => Math.ceil(effective_length / 32) * 32, // Round up to nearest 32
+					external_bits: 8n, // Use 8 bits for trim length
+					pump_transfer_length: (effective_length) => bigint_ceil(effective_length, 32n) * 32n, // Round up to nearest 32
 				},
 			},
 		};
@@ -1623,7 +1622,7 @@ test("suppa.encode/decode - transfer_length_trim basic functionality", async () 
 		const encode_result = suppa.encode({
 			strategy,
 			data: test_data,
-			options: { symbol_size: 64 }
+			options: { symbol_size: 64n }
 		});
 
 		const oti = await encode_result.oti;
@@ -1670,17 +1669,17 @@ test("suppa.encode/decode - transfer_length_trim with blocks output", async () =
 		const strategy = {
 			oti: {
 				symbol_size: {
-					external_bits: 0,
+					external_bits: 0n,
 					remap: {
-						to_internal: () => 256, // hardcoded symbol_size
+						to_internal: () => 256n, // hardcoded symbol_size
 						to_external: undefined,
 					},
 				},
 				transfer_length: {
-					external_bits: 32, // 8 bits less than the default 40
+					external_bits: 32n, // 8 bits less than the default 40
 					remap: {
-						to_internal: (value) => value * 256,
-						to_external: (value) => value / 256,
+						to_internal: (value) => value * 256n,
+						to_external: (value) => value / 256n,
 						// due to reduction of 8 bits, we decide to force length to be multiple of 256 to cover the entire range
 						// which happens to line up nicely with our symbol_size
 					},
@@ -1688,13 +1687,13 @@ test("suppa.encode/decode - transfer_length_trim with blocks output", async () =
 			},
 			payload: {
 				transfer_length_trim: {
-					external_bits: 8, // we compress this down to 8 bits by making the trim only refer to the lower 8 bits, as `transfer_length` already covers the remaining bits (well, with a value 256 larger)
+					external_bits: 8n, // we compress this down to 8 bits by making the trim only refer to the lower 8 bits, as `transfer_length` already covers the remaining bits (well, with a value 256 larger)
 					remap: {
-						to_internal: (external_value, { transfer_length }) => (transfer_length - 256) + external_value,
-						to_external: (internal_value, { transfer_length }) => internal_value - (transfer_length - 256)
+						to_internal: (external_value, { transfer_length }) => (transfer_length - 256n) + external_value,
+						to_external: (internal_value, { transfer_length }) => internal_value - (transfer_length - 256n)
 					},
 					// this function decides what internal transfer_length raptorq will use based on effective_transfer_length := the length of the data passed in to this interface + the size transfer_length_trim takes up, must return value >= effective_transfer_length
-					pump_transfer_length: (effective_transfer_length) => Math.ceil(effective_transfer_length / 256) * 256, // bring up to nearest 256 multiple
+					pump_transfer_length: (effective_transfer_length) => bigint_ceil(effective_transfer_length, 256n) * 256n, // bring up to nearest 256 multiple
 				},
 			},
 		};
@@ -1703,7 +1702,7 @@ test("suppa.encode/decode - transfer_length_trim with blocks output", async () =
 		const encode_result = suppa.encode({
 			strategy,
 			data: test_data,
-			options: { symbol_size: 256, num_source_blocks: 2 } // Use 256 to match the strategy
+			options: { symbol_size: 256n, num_source_blocks: 2n } // Use 256 to match the strategy
 		});
 
 		const oti = await encode_result.oti;
@@ -1740,7 +1739,7 @@ test("suppa.encode/decode - transfer_length_trim with blocks output", async () =
 
 		// Reconstruct data from blocks
 		let reconstructed_data = new Uint8Array(0);
-		for (const block of blocks.sort((a, b) => a.sbn - b.sbn)) {
+		for (const block of blocks.sort((a, b) => Number(a.sbn - b.sbn))) {
 			console.log(`Assembling block ${block.sbn}, current length: ${reconstructed_data.length}, adding: ${block.data.length}`);
 			const combined = new Uint8Array(reconstructed_data.length + block.data.length);
 			combined.set(reconstructed_data);
@@ -1750,7 +1749,7 @@ test("suppa.encode/decode - transfer_length_trim with blocks output", async () =
 		console.log(`Blocks test - reconstructed length before trim: ${reconstructed_data.length}`);
 
 		// Apply trim using the trim length from the promise
-		reconstructed_data = reconstructed_data.slice(0, trim_length);
+		reconstructed_data = reconstructed_data.slice(0, Number(trim_length));
 		console.log(`Blocks test - reconstructed length after trim: ${reconstructed_data.length}`);
 
 		// Verify the reconstructed data matches the original
@@ -1778,17 +1777,17 @@ test("suppa.encode/decode - transfer_length_trim with remap functions", async ()
 		const strategy = {
 			oti: {
 				symbol_size: {
-					external_bits: 0,
+					external_bits: 0n,
 					remap: {
-						to_internal: () => 256, // hardcoded symbol_size
+						to_internal: () => 256n, // hardcoded symbol_size
 						to_external: undefined,
 					},
 				},
 				transfer_length: {
-					external_bits: 32, // 8 bits less than the default 40
+					external_bits: 32n, // 8 bits less than the default 40
 					remap: {
-						to_internal: (value) => value * 256,
-						to_external: (value) => value / 256,
+						to_internal: (value) => value * 256n,
+						to_external: (value) => value / 256n,
 						// due to reduction of 8 bits, we decide to force length to be multiple of 256 to cover the entire range
 						// which happens to line up nicely with our symbol_size
 					},
@@ -1796,13 +1795,13 @@ test("suppa.encode/decode - transfer_length_trim with remap functions", async ()
 			},
 			payload: {
 				transfer_length_trim: {
-					external_bits: 8, // we compress this down to 8 bits by making the trim only refer to the lower 8 bits, as `transfer_length` already covers the remaining bits (well, with a value 256 larger)
+					external_bits: 8n, // we compress this down to 8 bits by making the trim only refer to the lower 8 bits, as `transfer_length` already covers the remaining bits (well, with a value 256 larger)
 					remap: {
-						to_internal: (external_value, { transfer_length }) => (transfer_length - 256) + external_value,
-						to_external: (internal_value, { transfer_length }) => internal_value - (transfer_length - 256)
+						to_internal: (external_value, { transfer_length }) => (transfer_length - 256n) + external_value,
+						to_external: (internal_value, { transfer_length }) => internal_value - (transfer_length - 256n)
 					},
 					// this function decides what internal transfer_length raptorq will use based on effective_transfer_length := the length of the data passed in to this interface + the size transfer_length_trim takes up, must return value >= effective_transfer_length
-					pump_transfer_length: (effective_transfer_length) => Math.ceil(effective_transfer_length / 256) * 256, // bring up to nearest 256 multiple
+					pump_transfer_length: (effective_transfer_length) => bigint_ceil(effective_transfer_length, 256n) * 256n, // bring up to nearest 256 multiple
 				},
 			},
 		};
@@ -1811,7 +1810,7 @@ test("suppa.encode/decode - transfer_length_trim with remap functions", async ()
 		const encode_result = suppa.encode({
 			strategy,
 			data: test_data,
-			options: { symbol_size: 256 } // Use 256 to match the strategy
+			options: { symbol_size: 256n } // Use 256 to match the strategy
 		});
 
 		const oti = await encode_result.oti;
@@ -1860,7 +1859,7 @@ test("suppa.encode/decode - transfer_length_trim disabled with zero external_bit
 		const strategy = {
 			payload: {
 				transfer_length_trim: {
-					external_bits: 0, // Disabled
+					external_bits: 0n, // Disabled
 				},
 			},
 		};
@@ -1869,7 +1868,7 @@ test("suppa.encode/decode - transfer_length_trim disabled with zero external_bit
 		const encode_result = suppa.encode({
 			strategy,
 			data: test_data,
-			options: { symbol_size: 40 }
+			options: { symbol_size: 40n }
 		});
 
 		const oti = await encode_result.oti;
@@ -1915,8 +1914,8 @@ test("suppa.decode - transfer_length_trim error handling", async () => {
 		const strategy = {
 			payload: {
 				transfer_length_trim: {
-					external_bits: 8,
-					pump_transfer_length: (effective_length) => effective_length + 10, // Add some padding
+					external_bits: 8n,
+					pump_transfer_length: (effective_length) => effective_length + 10n, // Add some padding
 				},
 			},
 		};
@@ -1925,7 +1924,7 @@ test("suppa.decode - transfer_length_trim error handling", async () => {
 		const encode_result = suppa.encode({
 			strategy,
 			data: test_data,
-			options: { symbol_size: 32 }
+			options: { symbol_size: 32n }
 		});
 
 		const oti = await encode_result.oti;
@@ -1939,13 +1938,13 @@ test("suppa.decode - transfer_length_trim error handling", async () => {
 		const bad_strategy = {
 			payload: {
 				transfer_length_trim: {
-					external_bits: 8,
+					external_bits: 8n,
 					remap: {
 						// This remap will make the trim length larger than available data
-						to_internal: (external_value, { transfer_length }) => external_value + 200, // Add way too much
-						to_external: (internal_value, { transfer_length }) => internal_value - 200
+						to_internal: (external_value, { transfer_length }) => external_value + 200n, // Add way too much
+						to_external: (internal_value, { transfer_length }) => internal_value - 200n
 					},
-					pump_transfer_length: (effective_length) => effective_length + 10,
+					pump_transfer_length: (effective_length) => effective_length + 10n,
 				},
 			},
 		};
@@ -1987,9 +1986,9 @@ test("raw decode - regular output format with multiple blocks", async () => {
 		// Encode the data with multiple source blocks
 		const encoded = raw.encode({
 			options: {
-				symbol_size: 48,
-				num_repair_symbols: 5,
-				num_source_blocks: 2  // Use 2 blocks to test multi-block scenario
+				symbol_size: 48n,
+				num_repair_symbols: 5n,
+				num_source_blocks: 2n  // Use 2 blocks to test multi-block scenario
 			},
 			data: originalData
 		});
@@ -2033,4 +2032,60 @@ test("raw decode - regular output format with multiple blocks", async () => {
 		console.error("Regular decoding test error:", error);
 		return false;
 	}
+});
+
+// Test that regular numbers are rejected - BigInt validation
+test("raw.encode - rejects regular numbers, requires BigInt", async () => {
+	const testData = createTestData(100);
+
+	try {
+		// This should fail because 800 is not 800n
+		const result = raw.encode({
+			options: { symbol_size: 800 }, // Regular number should be rejected
+			data: testData
+		});
+		// If we get here, validation failed
+		return false;
+	} catch (error) {
+		// Should get an error about BigInt requirement
+		if (error.message.includes("must be")) {
+			return true;
+		}
+		console.error("Unexpected error:", error.message);
+		return false;
+	}
+});
+
+// Test that all option fields reject regular numbers
+test("raw.encode - strict BigInt validation for all options", async () => {
+	const testData = createTestData(100);
+
+	const regularNumberTests = [
+		{ options: { symbol_size: 800 }, field: "symbol_size" },
+		{ options: { num_repair_symbols: 10 }, field: "num_repair_symbols" },
+		{ options: { num_source_blocks: 2 }, field: "num_source_blocks" },
+		{ options: { num_sub_blocks: 1 }, field: "num_sub_blocks" },
+		{ options: { symbol_alignment: 8 }, field: "symbol_alignment" },
+	];
+
+	for (const test of regularNumberTests) {
+		try {
+			const result = raw.encode({
+				options: test.options,
+				data: testData
+			});
+			// If we get here, validation failed
+			console.error(`${test.field} validation failed - should have rejected regular number`);
+			return false;
+		} catch (error) {
+			// Should get an error about BigInt requirement
+			if (!error.message.includes("must be")) {
+				console.error(`${test.field} - Unexpected error:`, error.message);
+				return false;
+			}
+			// Good, validation worked for this field
+		}
+	}
+
+	return true;
 });

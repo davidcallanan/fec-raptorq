@@ -1,5 +1,9 @@
 # Changelog
 
+**1.9.0**
+
+- Breaking: Change public interfaces to use BigInt everywhere instead of number in `raptorq_raw` and `raptorq_suppa`.
+
 **1.8.0**
 
 - Fix `num_source_blocks > 1` in `raptorq_raw` and `raptorq_suppa` interfaces.

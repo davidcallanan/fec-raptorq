@@ -20,13 +20,13 @@ This protocol allows you to add error correction to input data by converting it 
 
 ## Install
 
-**PNPM:**
+**Pnpm:**
 
 ```
 pnpm i @davidcal/fec-raptorq
 ```
 
-**NPM:**
+**Npm:**
 
 ```
 npm install @davidcal/fec-raptorq
@@ -48,11 +48,11 @@ import { raptorq_raw } from "@davidcal/fec-raptorq";
 // Encode using custom options
 
 const options = {
-    symbol_size: 1400,        // (T) Size of each symbol in bytes (max: 65535); must be multiple of symbol_alignment
-    num_repair_symbols: 15,   // Number of repair symbols per source block
-    num_source_blocks: 1,     // (Z) Number of source blocks (max: 255)
-    num_sub_blocks: 1,        // (N) Number of sub-blocks per source block (max: 65535)
-    symbol_alignment: 8,      // (Al) Symbol alignment in bytes (min: 1, max: 255)
+    symbol_size: 1400n,       // (T) Size of each symbol in bytes (max: 65535n); must be multiple of symbol_alignment
+    num_repair_symbols: 15n,  // Number of repair symbols per source block
+    num_source_blocks: 1n,    // (Z) Number of source blocks (max: 255n)
+    num_sub_blocks: 1n,       // (N) Number of sub-blocks per source block (max: 65535n)
+    symbol_alignment: 8n,     // (Al) Symbol alignment in bytes (min: 1n, max: 255n)
 };
 
 const data = new Uint8Array(...);

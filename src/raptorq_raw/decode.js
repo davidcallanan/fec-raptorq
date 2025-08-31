@@ -52,19 +52,19 @@ const decode_blocks = ({ binary_path }, input) => {
 		// Process complete blocks - we now know exact block sizes from the size header
 		while (buffer.length >= 5) { // Need at least SBN + size header
 			// Read SBN (1 byte)
-			const sbn = buffer[0];
+			const sbn = BigInt(buffer[0]);
 
-			// Read block size (4 bytes, little-endian)
-			const block_size = buffer[1] | (buffer[2] << 8) | (buffer[3] << 16) | (buffer[4] << 24);
+			// Read block size (4 bytes, little-endian) using BigInt for safe operations
+			const block_size = BigInt(buffer[1]) | (BigInt(buffer[2]) << 8n) | (BigInt(buffer[3]) << 16n) | (BigInt(buffer[4]) << 24n);
 
 			// Check if we have the complete block
-			const total_block_length = 5 + block_size; // 1 (SBN) + 4 (size) + block_size (data)
-			if (buffer.length < total_block_length) {
+			const total_block_length = 5n + block_size; // 1 (SBN) + 4 (size) + block_size (data)
+			if (BigInt(buffer.length) < total_block_length) {
 				break; // Wait for more data
 			}
 
 			// Extract block data
-			const block_data = new Uint8Array(buffer.slice(5, total_block_length));
+			const block_data = new Uint8Array(buffer.slice(5, Number(total_block_length)));
 
 			// Check for duplicate SBNs
 			if (seen_sbns.has(sbn)) {
@@ -72,7 +72,7 @@ const decode_blocks = ({ binary_path }, input) => {
 				console.warn(`Previous SBNs seen: ${Array.from(seen_sbns).join(", ")}`);
 
 				// Skip the duplicate block - remove the processed bytes and continue
-				buffer = buffer.slice(total_block_length);
+				buffer = buffer.slice(Number(total_block_length));
 				continue;
 			} else {
 				seen_sbns.add(sbn);
@@ -80,7 +80,7 @@ const decode_blocks = ({ binary_path }, input) => {
 
 			const block = {
 				sbn: sbn,
-				data: block_data
+				data: block_data,
 			};
 
 			// Send block to iterator
@@ -93,7 +93,7 @@ const decode_blocks = ({ binary_path }, input) => {
 			}
 
 			// Remove processed block from buffer
-			buffer.splice(0, total_block_length);
+			buffer.splice(0, Number(total_block_length));
 		}
 	});
 
@@ -151,6 +151,7 @@ const decode_blocks = ({ binary_path }, input) => {
 
 			process.stdin.end();
 		} catch (error) {
+			console.error(error);
 			const wrapped_error = new Error(`Error writing to RaptorQ decoder: ${error.message}`);
 			block_rej(wrapped_error);
 			process.kill();
@@ -164,7 +165,7 @@ const get_oti_length_properly = (oti) => {
 	// using bigint properly
 	// this will use bigint:
 	return BigInt(oti[8]) | (BigInt(oti[9]) << 8n) | (BigInt(oti[10]) << 16n) | (BigInt(oti[11]) << 24n);
-}
+};
 
 const decode_combined = ({ binary_path }, input) => {
 	return new Promise(async (resolve, reject) => {
@@ -179,7 +180,7 @@ const decode_combined = ({ binary_path }, input) => {
 			}
 
 			// Sort blocks by SBN and combine
-			const sorted_sbns = Array.from(blocks_map.keys()).sort((a, b) => a - b);
+			const sorted_sbns = Array.from(blocks_map.keys()).sort((a, b) => Number(a - b));
 			const combined_blocks = sorted_sbns.map(sbn => blocks_map.get(sbn));
 
 			// Calculate total length and combine

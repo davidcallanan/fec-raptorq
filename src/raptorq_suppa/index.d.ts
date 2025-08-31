@@ -1,16 +1,16 @@
 // TypeScript declarations for RaptorQ Suppa module
 
 export interface EncodeOptions {
-	symbol_size?: number;
-	num_repair_symbols?: number;
-	num_source_blocks?: number;
-	num_sub_blocks?: number;
-	symbol_alignment?: number;
+	symbol_size?: bigint;
+	num_repair_symbols?: bigint;
+	num_source_blocks?: bigint;
+	num_sub_blocks?: bigint;
+	symbol_alignment?: bigint;
 }
 
 export interface RemapFunctions {
-	to_internal: (external: number) => number;
-	to_external?: (internal: number) => number; // undefined when external_bits is 0
+	to_internal: (external: bigint) => bigint;
+	to_external?: (internal: bigint) => bigint; // undefined when external_bits is 0
 }
 
 export interface StrategySbn {
@@ -46,14 +46,14 @@ export interface StrategyOti {
 }
 
 export interface TransferLengthTrimRemapFunctions {
-	to_internal: (external_value: number, context: { transfer_length: number }) => number;
-	to_external: (internal_value: number, context: { transfer_length: number }) => number;
+	to_internal: (external_value: bigint, context: { transfer_length: bigint }) => bigint;
+	to_external: (internal_value: bigint, context: { transfer_length: bigint }) => bigint;
 }
 
 export interface StrategyTransferLengthTrim {
 	external_bits?: number; // 0-40, default 0
 	remap?: TransferLengthTrimRemapFunctions;
-	pump_transfer_length?: (effective_transfer_length: number) => number;
+	pump_transfer_length?: (effective_transfer_length: bigint) => bigint;
 }
 
 export interface StrategyPayload {
@@ -90,13 +90,13 @@ export interface DecodeInput {
 }
 
 export interface DecodedBlock {
-	sbn: number;
+	sbn: bigint;
 	data: Uint8Array;
 }
 
 export interface DecodeBlocksResult {
 	blocks: AsyncIterable<DecodedBlock>;
-	transfer_length_trim?: Promise<number>; // Present when strategy.payload.transfer_length_trim is used
+	transfer_length_trim?: Promise<bigint>; // Present when strategy.payload.transfer_length_trim is used
 }
 
 export type DecodeResult = Promise<Uint8Array> | DecodeBlocksResult;

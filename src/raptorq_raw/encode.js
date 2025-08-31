@@ -76,7 +76,7 @@ export const encode = ({ binary_path }, { options, data }) => {
 	let oti_buffer = [];
 	const OTI_SIZE = 12;
 
-	const encoding_symbol_size = options.symbol_size + 4; // PayloadId size is 4 bytes
+	const encoding_symbol_size = options.symbol_size + 4n; // PayloadId size is 4 bytes
 
 	process.stdout.on('data', (chunk) => {
 		if (!oti_resolved) {
@@ -96,8 +96,8 @@ export const encode = ({ binary_path }, { options, data }) => {
 					symbol_buffer.push(...remaining_data);
 
 					// Process complete symbols
-					while (symbol_buffer.length >= encoding_symbol_size) {
-						const symbol_data = symbol_buffer.splice(0, encoding_symbol_size);
+					while (symbol_buffer.length >= Number(encoding_symbol_size)) {
+						const symbol_data = symbol_buffer.splice(0, Number(encoding_symbol_size));
 						const symbol = new Uint8Array(symbol_data);
 
 						if (iterator_waiting) {
@@ -117,11 +117,11 @@ export const encode = ({ binary_path }, { options, data }) => {
 			// Process symbol data
 			symbol_buffer.push(...chunk);
 
-			const encoding_symbol_size = options.symbol_size + 4; // PayloadId size is 4 bytes per RFC 6330 and main.rs
+			const encoding_symbol_size = options.symbol_size + 4n; // PayloadId size is 4 bytes per RFC 6330 and main.rs
 
 			// Process complete symbols
-			while (symbol_buffer.length >= encoding_symbol_size) {
-				const symbol_data = symbol_buffer.splice(0, encoding_symbol_size);
+			while (symbol_buffer.length >= Number(encoding_symbol_size)) {
+				const symbol_data = symbol_buffer.splice(0, Number(encoding_symbol_size));
 				const symbol = new Uint8Array(symbol_data);
 
 				if (iterator_waiting) {
