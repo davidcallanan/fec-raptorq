@@ -1,5 +1,10 @@
 # Changelog
 
+**1.10.0**
+
+- Breaking: Rename `"nogotation"` string to `"negotiation"` (fix typo) in `raptorq_suppa`.
+- Internal: Code cleanup.
+
 **1.9.0**
 
 - Breaking: Change public interfaces to use BigInt everywhere instead of number in `raptorq_raw` and `raptorq_suppa`.

@@ -106,7 +106,7 @@ See [`CONTRIBUTING.md`](CONTRIBUTING.md).
 - Add wrapper API that provides FEC Payload ID customization to reduce overhead:
   - Add disable SBN option. This would be useful if the developer has their own notion of SBNs or chunks files manually using hashes, saving 1 byte per FEC Payload ID.
   - Assess possibility to expose custom ESI size option. Are ESIs generated sequentially?
-- Add wrapper API that helps with OTI negotation and exposes simpler interface.
+- Add wrapper API that helps with OTI negotiation and exposes simpler interface.
 - Explore how sub-blocks work and determine if any supplementary functionality would be useful.
 - Add Windows ARM support.
 - Add Web WASM support.

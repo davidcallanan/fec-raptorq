@@ -4,6 +4,8 @@ import { fileURLToPath } from "url";
 import { get_binary_path } from "../get_binary_path.js";
 import { encode } from "./encode.js";
 import { decode } from "./decode.js";
+import { oti_encode } from "./oti_encode.js";
+import { oti_decode } from "./oti_decode.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -17,4 +19,6 @@ export const raptorq_raw = {
 	decode: (...args) => decode({
 		binary_path,
 	}, ...args),
+	oti_encode,
+	oti_decode,
 };

@@ -34,7 +34,7 @@ export interface OtiFieldStrategy {
 }
 
 export interface StrategyOti {
-	placement?: "negotation" | "encoding_packet"; // default "negotation"
+	placement?: "negotiation" | "encoding_packet"; // default "negotiation"
 	transfer_length?: OtiFieldStrategy; // 0-40 bits, default 40
 	fec_encoding_id?: {
 		external_bits?: 0 | 8; // Can only be 0 (omitted) or 8 (present), default 8

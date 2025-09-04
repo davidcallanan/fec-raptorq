@@ -2,24 +2,32 @@
 
 It is recommended that you gain a thorough understanding of the original [`raptorq_raw`](raptorq_raw.md) interface before studying this one.
 
-**This interface is a work-in-progress.**
+This interface the following abilities, **above and beyond the raw RaptorQ interface**:
 
-It will offer methods to:
-
- - Override SBN output [DONE].
- - Disable SBN output [DONE].
- - Reduce ESI size in output. [DONE]
- - Modify OTI structure:
-   - Remove FEC Encoding ID. [DONE]
-   - Pre-negotiate certain encoding options and remove relevant data from OTI. [DONE]
- - Enable per-packet OTI: [DONE]
-   - Reduces need to use OTI 
+ - Modify structure of Encoding Packet:
+   - Override or disable SBN output. This is useful if you have a custom strategy for breaking larger conceptual objects (e.g. files) into smaller "blocks".
+   - Reduce ESI size for compactness or alter output strategy.
+ - Modify structure of OTI:
+   - Disable useless FEC Encoding ID output.
+   - Pre-negotiate encoding options and remove hardcoded data from OTI output.
+   - Reduce size of encoding options for compactness or alter output strategy. 
+ - Enable per-packet OTI:
+   - Reduces need to negotiate OTI. 
    - Does add overhead, but not too significant if symbol size is sufficiently large.
-   - Simplifies developer experience at a small cost.
- - Enable inbuilt error detection:
-   - Pass ECC function directly, like sha256.
-   - Provide trim parameter.
- - Customizable trim length which would differ from the transfer length. This trim length would be dumped at the start of the transfer. This is useful in case you don't want transfer length negotiation. It would result in some wasted space but might make sense to your needs. Trimmed after decoding.
+   - Improves developer experience at a small cost by simplifying OTI process.
+ - Modify structure of Payload:
+   - Provide trim parameter.  
+     - Customizable trim length which would differ from the transfer length. This trim length is dumped at the start of the transfer. This is useful in case you don't want transfer length negotiation. It would result in some wasted space but might make sense to your needs. Trimmed after decoding.
+   - Enable inbuilt error detection: [TODO!]
+     - Pass ECC function directly, like sha256.
+	 - This allows passing corrupt encoding packets, making recovery robust and safe.
+
+
+## Import
+
+```
+import { raptorq_suppa } from "@davidcal/fec-raptorq";
+```
 
 # Encode
 
@@ -126,8 +134,8 @@ You can now enable per-packet OTI, this means the OTI is copied into each encodi
 ```
 strategy: {
 	oti: {
-		placement: "negotation", // (default)
-		// when placement === "negotation", oti is returned as normal from encoding process.
+		placement: "negotiation", // (default)
+		// when placement === "negotiation", oti is returned as normal from encoding process.
 		placement: "encoding_packet", // enables per-packet OTI
 		// when placement === "encoding_packet", the returned `oti` from encoding will be undefined (and decoding will expect the same), and decoding will now read the oti on a per-packet basis. if decoder encounters two different OTI during processing, it will error.
 	},
@@ -156,7 +164,7 @@ options: {
 
 ## Hardcoding Encoding Options
 
-Hardcoding encoding options is easy, and prevents these values from being present in the OTI, saving space and reducing the burden of negotation.
+Hardcoding encoding options is easy, and prevents these values from being present in the OTI, saving space and reducing the burden of negotiation.
 
 For example, to hardcode `transfer_length` to `1024`, we would use the following configuration for encoding:
 
@@ -182,7 +190,7 @@ For example, to hardcode `transfer_length` to `1024`, we would use the following
 }
 ```
 
-You must use the same `strategy` for decoding. If everything in the OTI is hardcoded then you can omit including this in the decoding process. You can detect this if the `oti` returned from encoding is `undefined`.
+You must use the same `strategy` for decoding. If everything in the OTI is hardcoded then you can omit including the OTI in the decoding process (as OTI is always undefined in this case). You can detect this if the `oti` returned from encoding is `undefined`.
 
 The configuration is similar for other encoding options.
 

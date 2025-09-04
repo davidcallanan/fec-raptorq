@@ -677,7 +677,7 @@ test("suppa.encode - strategy validation errors", () => {
 			});
 			return false; // Should have thrown
 		} catch (e) {
-			if (!e.message.includes("bigint between 0n and 8n")) {
+			if (!e.message.includes("at most 8n")) {
 				return false;
 			}
 		}
@@ -691,7 +691,7 @@ test("suppa.encode - strategy validation errors", () => {
 			});
 			return false; // Should have thrown
 		} catch (e) {
-			if (!e.message.includes("bigint between 2n and 24n")) {
+			if (!e.message.includes("at least 2n")) {
 				return false;
 			}
 		}
@@ -1262,13 +1262,13 @@ test("suppa - external_bits=0 round-trip with undefined OTI", async () => {
 });
 
 // Test raptorq_suppa oti.placement="negotation" (default behavior)
-test("suppa.encode/decode - oti.placement negotation (default)", async () => {
+test("suppa.encode/decode - oti.placement negotiation (default)", async () => {
 	const test_data = createTestData(100);
 
 	try {
 		const strategy = {
 			oti: {
-				placement: "negotation", // Explicitly set to default
+				placement: "negotiation", // Explicitly set to default
 			},
 		};
 
@@ -1398,7 +1398,7 @@ test("suppa.encode - oti.placement validation", async () => {
 			});
 			return false; // Should have thrown
 		} catch (e) {
-			if (!e.message.includes('strategy.oti.placement must be "negotation" or "encoding_packet"')) {
+			if (!e.message.includes('Provided strategy.oti.placement (invalid_value) must be "negotiation" or "encoding_packet"')) {
 				console.error("Expected placement validation error, got:", e.message);
 				return false;
 			}
@@ -1877,6 +1877,8 @@ test("suppa.encode/decode - transfer_length_trim disabled with zero external_bit
 		for await (const packet of encode_result.encoding_packets) {
 			encoding_packets.push(packet);
 		}
+
+		console.log("DECODING WITH OTI", oti);
 
 		// Decode with same strategy
 		const decode_result = suppa.decode({

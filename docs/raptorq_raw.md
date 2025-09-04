@@ -2,6 +2,12 @@
 
 It is recommended that you spend a few hours studying the [original RFC 6330 document](https://datatracker.ietf.org/doc/html/rfc6330) to bring about a better understanding of how this interface works.
 
+## Import
+
+```
+import { raptorq_raw } from "@davidcal/fec-raptorq";
+```
+
 ## Encode
 
 ```
@@ -20,7 +26,7 @@ Return value:
  
 You may work with each of the resulting encoding packets independently. The original data can be reconstructed once a sufficient number of encoding packets are received on the decoding end.
 
-Note that the resulting `oti` is very sensitive to changes in the encoding input. Altering `data.length` or `options` will likely result in a change to the OTI. It would be difficult to hardcode an OTI on the decoding end given this detail, so bear in mind the need for OTI negotation.
+Note that the resulting `oti` is very sensitive to changes in the encoding input. Altering `data.length` or `options` will likely result in a change to the OTI. It would be difficult to hardcode an OTI on the decoding end given this detail, so bear in mind the need for OTI negotiation.
 
 ### Encoding Options
 
@@ -92,7 +98,7 @@ Return value if `usage.output_format === "blocks"`:
    - `sbn`: An unsigned 8-bit integer `bigint` corresponding to the "SBN" (Source Block Number) as defined by RFC 6330.
    - `data`: A `Uint8Array` of the portion of the originally encoded data corresponding to this block.
 
-There are no manual decoding options available, as decoding is configured via the OTI. If you'd like a simpler interface that bakes OTI negotation into the encoding packets directly, see the supplementary [`raptorq_suppa`](raptorq_suppa.md) interface.
+There are no manual decoding options available, as decoding is configured via the OTI. If you'd like a simpler interface that bakes OTI negotiation into the encoding packets directly, see the supplementary [`raptorq_suppa`](raptorq_suppa.md) interface.
 
 **Important**: It is not expected for the developer to treat the OTI bytes as part of one of the encoding packets, as the OTI is external to the recovery algorithm. If such a packet were dropped, the decoder would be in trouble. Instead, the encoder and decoder must agree on the OTI via an out-of-band mechanism or by using a hardcoded OTI. If an out-of-band mechanism is used for exchanging the OTI, it is the responsibility of the developer to ensure integrity. This process is outside the scope of RFC 6330.
 
