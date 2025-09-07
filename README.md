@@ -2,7 +2,9 @@
 
 This npm package exposes `RaptorQ` ([RFC 6330](https://datatracker.ietf.org/doc/html/rfc6330)) erasure coding functionality in Node.js, providing a simple interface for Forward Error Correction (FEC).
 
-This protocol allows you to add error correction to input data by converting it into a special array of chunks, called "encoding symbols". These encoding symbols can be delivered independently, and extra encoding symbols are generated for redundancy. Once the decoder receives sufficient encoding symbols to reconstruct the original data, the process stops. In a networking context, for instance, you might decide on a one-to-one mapping between encoding symbols and UDP packets.
+This protocol allows you to add error correction to input data by converting it into a special array of chunks, called "encoding packets". These encoding packets can be delivered independently, and extra encoding packets are generated for redundancy. Once the decoder receives sufficient encoding packets to reconstruct the original data, the process stops. In a networking context, for instance, you might decide on an almost one-to-one mapping between encoding packets and UDP packets. For a hypothetical filesystem (that is somehow written in JavaScript), you could imagine a one-to-one mapping between encoding packets and the NAND flash blocks on an SSD.
+
+The specific type of error correction employed by RaptorQ handles lost or dropped encoding packets only. It does not natively handle corruption within encoding packets, but this NPM package contains extra functionality to handle such corruption if enabled as part of the [`raptorq_suppa`](docs/raptorq_suppa.md) interface. It is advisable to enable the `ecc` functionality if packet corruption is expected in your environment.
 
 ## Supported Targets
 
@@ -85,12 +87,12 @@ See documentation below for detailed encoding and decoding usage.
 
 ## Documentation
 
-The raw RaptorQ interface is supplemented with higher-level interfaces that enhance the developer experience and offer further useful functionality.
+The raw RaptorQ interface is supplemented with a higher-level interface that enhance the developer experience and offers further useful functionality.
 
 See the relevant documentation page for the interface you are interested in using:
 
 - [`raptorq_raw`](docs/raptorq_raw.md) - Raw RFC 6330-compliant interface with no additional functionality.
-- [`raptorq_suppa`](docs/raptorq_suppa.md) - Wrapper interface that provides better pre-negotiated strategy options, giving the programmer more control and simplifying the decoding process.
+- [`raptorq_suppa`](docs/raptorq_suppa.md) - Wrapper interface that provides better pre-negotiated strategy options and more, giving the programmer more control and simplifying the decoding process.
 
 ## Changelog
 

@@ -62,6 +62,10 @@ export const exact_strategy = (strategy) => {
 	strategy.encoding_packet.esi.remap.to_internal ??= (external) => external;
 	strategy.encoding_packet.esi.remap.to_external ??= (internal) => internal;
 
+	strategy.encoding_packet.ecc = shallow(strategy.encoding_packet.ecc);
+	strategy.encoding_packet.ecc.external_bits ??= 0n;
+	strategy.encoding_packet.ecc.generate_ecc ??= undefined;
+
 	strategy.payload = shallow(strategy.payload);
 	strategy.payload.transfer_length_trim = shallow(strategy.payload.transfer_length_trim);
 	strategy.payload.transfer_length_trim.external_bits ??= 0n;
@@ -242,6 +246,25 @@ export const exact_strategy = (strategy) => {
 
 	if (typeof strategy.encoding_packet.esi.remap.to_external !== "function") {
 		throw_error(error_user_payload("Provided strategy.encoding_packet.esi.remap.to_external must be function."));
+	}
+
+	if (typeof strategy.encoding_packet.ecc.external_bits !== "bigint") {
+		throw_error(error_user_payload("Provided strategy.encoding_packet.ecc.external_bits must be bigint."));
+	}
+
+	if (strategy.encoding_packet.ecc.external_bits < 0n) {
+		throw_error(error_user_payload("Provided strategy.encoding_packet.ecc.external_bits must be unsigned."));
+	}
+
+	if (strategy.encoding_packet.ecc.external_bits > 1024n) {
+		throw_error(error_user_payload("Provided strategy.encoding_packet.ecc.external_bits must be at most 1024n."));
+	}
+
+	if (true
+		&& strategy.encoding_packet.ecc.external_bits > 0n
+		&& typeof strategy.encoding_packet.ecc.generate_ecc !== "function"
+	) {
+		throw_error(error_user_payload("Provided strategy.encoding_packet.ecc.generate_ecc must be function when external_bits is non-zero."));
 	}
 
 	if (typeof strategy.payload.transfer_length_trim.external_bits !== "bigint") {

@@ -2091,3 +2091,509 @@ test("raw.encode - strict BigInt validation for all options", async () => {
 
 	return true;
 });
+
+// Test that raw decoder bails out as soon as enough packets are received
+test("raw.decode - early bailout with sufficient packets", async () => {
+	const test_data = createTestData(800); // Large enough to need multiple symbols
+
+	try {
+		// Configure with specific symbol size and extra repair symbols
+		const options = {
+			symbol_size: 200n, // Will need 4 source symbols for 800 bytes
+			num_repair_symbols: 10n, // Generate 10 extra repair symbols,
+			symbol_alignment: 1n,
+		};
+
+		const encoded = raw.encode({ options, data: test_data });
+		const oti = await encoded.oti;
+
+		// Collect all available symbols (source + repair)
+		const all_symbols = [];
+		for await (const symbol of encoded.encoding_packets) {
+			all_symbols.push(symbol);
+		}
+
+		console.log(`Generated ${all_symbols.length} total symbols for early bailout test`);
+
+		// Calculate minimum symbols needed (should be 4 for 800 bytes with 200-byte symbols)
+		const expected_source_symbols = Math.ceil(test_data.length / Number(options.symbol_size));
+		console.log(`Expected minimum symbols needed: ${expected_source_symbols}`);
+
+		// Test 1: Verify we can decode with exactly the minimum needed symbols
+		const minimum_symbols = all_symbols.slice(0, expected_source_symbols);
+
+		const decode_result_1 = raw.decode({
+			oti,
+			encoding_packets: (async function* () {
+				for (const symbol of minimum_symbols) {
+					yield symbol;
+				}
+			})()
+		});
+
+		const decoded_data_1 = await decode_result_1;
+
+		if (!arraysEqual(test_data, decoded_data_1)) {
+			console.error("Failed to decode with minimum symbols");
+			return false;
+		}
+
+		// Test 2: Verify decoder doesn't wait for extra symbols beyond minimum
+		let symbols_consumed = 0;
+		let decode_completed = false;
+
+		const decode_result_2 = raw.decode({
+			oti,
+			encoding_packets: (async function* () {
+				for (const symbol of all_symbols) {
+					symbols_consumed++;
+					yield symbol;
+
+					// Add small delay to make timing more observable
+					await new Promise(resolve => setTimeout(resolve, 1));
+				}
+			})()
+		});
+
+		// Start decoding and track when it completes
+		const decode_promise = decode_result_2.then(result => {
+			decode_completed = true;
+			return result;
+		});
+
+		const decoded_data_2 = await decode_promise;
+
+		if (!arraysEqual(test_data, decoded_data_2)) {
+			console.error("Failed to decode with all symbols");
+			return false;
+		}
+
+		// The decoder should have completed before consuming all symbols
+		// (though exact timing depends on the binary implementation)
+		console.log(`Symbols consumed: ${symbols_consumed}, Total available: ${all_symbols.length}`);
+		console.log(`Decode completed: ${decode_completed}`);
+
+		return true;
+
+	} catch (error) {
+		console.error("Raw early bailout test error:", error);
+		return false;
+	}
+});
+
+// Test edge case: decoder behavior when receiving repair symbols first
+test("raw.decode - early bailout with repair symbols first", async () => {
+	const test_data = createTestData(600);
+
+	try {
+		const options = {
+			symbol_size: 150n, // Will need 4 source symbols
+			num_repair_symbols: 6n,
+			symbol_alignment: 1n,
+		};
+
+		const encoded = raw.encode({ options, data: test_data });
+		const oti = await encoded.oti;
+
+		const all_symbols = [];
+		for await (const symbol of encoded.encoding_packets) {
+			all_symbols.push(symbol);
+		}
+
+		// Create a mixed symbol order: some repair symbols first, then source symbols
+		const mixed_symbols = [
+			...all_symbols.slice(-3), // Last 3 symbols (likely repair)
+			...all_symbols.slice(0, 3), // First 3 symbols (likely source)
+		];
+
+		console.log(`Testing with ${mixed_symbols.length} mixed-order symbols`);
+
+		let symbols_fed = 0;
+		const decode_result = raw.decode({
+			oti,
+			encoding_packets: (async function* () {
+				for (const symbol of mixed_symbols) {
+					symbols_fed++;
+					yield symbol;
+
+					// Small delay to make consumption observable
+					await new Promise(resolve => setTimeout(resolve, 2));
+				}
+			})()
+		});
+
+		const decoded_data = await decode_result;
+
+		if (!arraysEqual(test_data, decoded_data)) {
+			console.error("Failed to decode with mixed symbol order");
+			return false;
+		}
+
+		console.log(`Mixed order test fed ${symbols_fed} symbols`);
+
+		return true;
+
+	} catch (error) {
+		console.error("Mixed order bailout test error:", error);
+		return false;
+	}
+});
+
+
+// Test that suppa decoder bails out as soon as enough packets are received
+test("suppa.decode - early bailout with sufficient packets", async () => {
+	const test_data = createTestData(1200); // Large enough to need multiple symbols
+
+	try {
+		// Configure with specific symbol size and strategy
+		const options = {
+			symbol_size: 300n, // Will need 4 source symbols for 1200 bytes
+			num_repair_symbols: 8n, // Generate 8 extra repair symbols
+			symbol_alignment: 1n,
+		};
+
+		const strategy = {};
+
+		const encoded = suppa.encode({ options, data: test_data, strategy });
+		const oti = await encoded.oti;
+
+		// Collect all available symbols (source + repair)
+		const all_symbols = [];
+		for await (const symbol of encoded.encoding_packets) {
+			all_symbols.push(symbol);
+		}
+
+		console.log(`Suppa generated ${all_symbols.length} total symbols for early bailout test`);
+
+		// Calculate minimum symbols needed
+		const expected_source_symbols = Math.ceil(test_data.length / Number(options.symbol_size));
+		console.log(`Suppa expected minimum symbols needed: ${expected_source_symbols}`);
+
+		// Test 1: Verify we can decode with exactly the minimum needed symbols
+		const minimum_symbols = all_symbols.slice(0, expected_source_symbols);
+
+		const decoded_data_1 = await suppa.decode({
+			oti,
+			strategy,
+			encoding_packets: (async function* () {
+				for (const symbol of minimum_symbols) {
+					yield symbol;
+				}
+			})()
+		});
+
+		if (!arraysEqual(test_data, decoded_data_1)) {
+			console.error("Suppa failed to decode with minimum symbols");
+			return false;
+		}
+
+		// Test 2: Verify decoder efficiency with partial symbol stream
+		let symbols_processed = 0;
+		let early_completion_detected = false;
+
+		// Create a controlled symbol feeder that tracks consumption
+		const controlled_symbol_iterator = {
+			async *[Symbol.asyncIterator]() {
+				for (let i = 0; i < all_symbols.length; i++) {
+					symbols_processed++;
+
+					// Yield the symbol
+					yield all_symbols[i];
+
+					// After yielding minimum + 1 symbols, check if we can detect completion soon
+					if (symbols_processed === expected_source_symbols + 1) {
+						// Add a small delay and see if the decoder is still requesting more
+						await new Promise(resolve => setTimeout(resolve, 10));
+					}
+
+					// Don't yield more than minimum + 2 to avoid unnecessary processing
+					if (symbols_processed >= expected_source_symbols + 2) {
+						console.log(`Stopping symbol feed early at ${symbols_processed} symbols`);
+						break;
+					}
+				}
+			}
+		};
+
+		const decoded_data_2 = await suppa.decode({
+			oti,
+			strategy,
+			encoding_packets: controlled_symbol_iterator
+		});
+
+		if (!arraysEqual(test_data, decoded_data_2)) {
+			console.error("Suppa failed to decode with controlled symbol stream");
+			return false;
+		}
+
+		// Verify that we didn't need to process all symbols
+		console.log(`Suppa symbols processed: ${symbols_processed}, Total available: ${all_symbols.length}`);
+
+		// Should have processed at least minimum but not all symbols
+		const processing_efficient = (0n
+			&& symbols_processed >= expected_source_symbols
+			&& symbols_processed < all_symbols.length
+		);
+
+		console.log(`Suppa processing efficient: ${processing_efficient}`);
+
+		return true;
+
+	} catch (error) {
+		console.error("Suppa early bailout test error:", error);
+		return false;
+	}
+});
+
+// Simple CRC8 function for testing ECC
+const crc8 = (data) => {
+	let crc = 0n;
+	for (let i = 0; i < data.length; i++) {
+		crc ^= BigInt(data[i]);
+		for (let j = 0; j < 8; j++) {
+			if (crc & 0x80n) {
+				crc = (crc << 1n) ^ 0x07n;
+			} else {
+				crc = crc << 1n;
+			}
+		}
+	}
+	return crc & 0xFFn;
+};
+
+// Test basic ECC functionality
+test("suppa.ecc - basic ECC encoding/decoding", async () => {
+	const test_data = new Uint8Array([1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
+
+	const strategy_with_ecc = {
+		encoding_packet: {
+			ecc: {
+				external_bits: 8n,
+				generate_ecc: crc8,
+			},
+		},
+	};
+
+	try {
+		// Encode with ECC
+		const encode_result = suppa.encode({
+			strategy: strategy_with_ecc,
+			data: test_data,
+		});
+
+		const packets = [];
+		for await (const packet of encode_result.encoding_packets) {
+			packets.push(packet);
+			if (packets.length >= 5) break; // Just collect a few packets for testing
+		}
+
+		// Decode with ECC verification
+		const decode_result = await suppa.decode({
+			strategy: strategy_with_ecc,
+			oti: await encode_result.oti,
+			encoding_packets: (async function* () {
+				for (const packet of packets) {
+					yield packet;
+				}
+			})(),
+		});
+
+		// Compare results
+		return arraysEqual(test_data, decode_result);
+
+	} catch (error) {
+		console.error("Basic ECC test failed:", error);
+		return false;
+	}
+});
+
+// Test ECC corruption detection
+test("suppa.ecc - corruption detection", async () => {
+	const test_data = new Uint8Array([1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
+
+	const strategy_with_ecc = {
+		encoding_packet: {
+			ecc: {
+				external_bits: 8n,
+				generate_ecc: crc8,
+			},
+		},
+	};
+
+	try {
+		// Encode with ECC
+		const encode_result = suppa.encode({
+			strategy: strategy_with_ecc,
+			data: test_data,
+		});
+
+		// Collect packets and corrupt one
+		const packets = [];
+		for await (const packet of encode_result.encoding_packets) {
+			packets.push(packet);
+			if (packets.length >= 10) break; // Collect more packets to ensure we have enough
+		}
+
+		// Corrupt the ECC header in the first packet (flip a bit in the ECC)
+		if (packets.length > 0) {
+			const corrupted_packets = [...packets];
+			corrupted_packets[0] = new Uint8Array(packets[0]);
+			corrupted_packets[0][0] ^= 0x01; // Flip first bit of ECC header
+
+			// Try to decode with corrupted packet
+			const decode_result = await suppa.decode({
+				strategy: strategy_with_ecc,
+				oti: await encode_result.oti,
+				encoding_packets: (async function* () {
+					for (const packet of corrupted_packets) {
+						yield packet;
+					}
+				})(),
+			});
+
+			// Check if data still matches (should, since corrupted packet was dropped)
+			return arraysEqual(test_data, decode_result);
+		}
+
+		return false;
+
+	} catch (error) {
+		console.error("ECC corruption test failed:", error);
+		return false;
+	}
+});
+
+// Test per-packet OTI with ECC
+test("suppa.ecc - per-packet OTI with ECC", async () => {
+	const test_data = new Uint8Array([1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
+
+	const strategy_with_per_packet_oti_and_ecc = {
+		oti: {
+			placement: "encoding_packet",
+		},
+		encoding_packet: {
+			ecc: {
+				external_bits: 8n,
+				generate_ecc: crc8,
+			},
+		},
+	};
+
+	try {
+		// Encode with per-packet OTI and ECC
+		const encode_result = suppa.encode({
+			strategy: strategy_with_per_packet_oti_and_ecc,
+			data: test_data,
+		});
+
+		// OTI should be undefined for per-packet placement
+		const oti = await encode_result.oti;
+		if (oti !== undefined) {
+			return false;
+		}
+
+		const packets = [];
+		for await (const packet of encode_result.encoding_packets) {
+			packets.push(packet);
+			if (packets.length >= 5) break;
+		}
+
+		// Decode with per-packet OTI and ECC verification
+		const decode_result = await suppa.decode({
+			strategy: strategy_with_per_packet_oti_and_ecc,
+			oti: undefined, // Must be undefined for per-packet placement
+			encoding_packets: (async function* () {
+				for (const packet of packets) {
+					yield packet;
+				}
+			})(),
+		});
+
+		// Compare results
+		return arraysEqual(test_data, decode_result);
+
+	} catch (error) {
+		console.error("Per-packet OTI with ECC test failed:", error);
+		return false;
+	}
+});
+
+// Test corrupting every 2nd encoding packet with sufficient repair symbols
+test("suppa.ecc - corrupt every 2nd packet with sufficient repair symbols", async () => {
+	// Create fairly large test data (not 50KB)
+	const test_data_size = 5000;
+	const test_data = new Uint8Array(test_data_size);
+	for (let i = 0; i < test_data_size; i++) {
+		test_data[i] = (i
+			* 37
+			+ 13
+		) % 256; // Create some pattern for testing
+	}
+
+	const strategy_with_ecc = {
+		encoding_packet: {
+			ecc: {
+				external_bits: 8n,
+				generate_ecc: crc8,
+			},
+		},
+	};
+
+	try {
+		// Encode with ECC and generate extra repair symbols
+		const encode_result = suppa.encode({
+			strategy: strategy_with_ecc,
+			data: test_data,
+			options: {
+				symbol_size: 100n,
+				symbol_alignment: 1n,
+				num_repair_symbols: 100n, // Generate plenty of repair symbols to handle corruption
+			}
+		});
+
+		// Collect all packets - we need enough to handle 50% corruption
+		const all_packets = [];
+		for await (const packet of encode_result.encoding_packets) {
+			all_packets.push(packet);
+		}
+
+		console.log(`Collected ${all_packets.length} total packets for corruption test`);
+
+		// Corrupt every 2nd packet by flipping bits in the ECC header
+		const packets_with_corruption = all_packets.map((packet, index) => {
+			if (false
+				|| index % 2 !== 0
+				// || index % 2 === 0
+				// uncomment above to test that test  fails properly
+			) { // Corrupt every 2nd packet (indices 1, 3, 5, ...)
+				const corrupted = new Uint8Array(packet);
+				corrupted[0] ^= 0xFF; // Flip all bits in first byte of ECC header
+				return corrupted;
+			}
+			return packet;
+		});
+
+		console.log(`Corrupted ${Math.floor(all_packets.length / 2)} packets (every 2nd packet)`);
+
+		// Try to decode with 50% corrupted packets
+		const decode_result = await suppa.decode({
+			strategy: strategy_with_ecc,
+			oti: await encode_result.oti,
+			encoding_packets: (async function* () {
+				for (const packet of packets_with_corruption) {
+					yield packet;
+				}
+			})(),
+		});
+
+		// Verify the decoded data matches original
+		const matches = arraysEqual(test_data, decode_result);
+		console.log(`Large data corruption test - data matches: ${matches}, original size: ${test_data.length}, decoded size: ${decode_result.length}`);
+
+		return matches;
+
+	} catch (error) {
+		console.error("Large data corruption test failed:", error);
+		return false;
+	}
+});

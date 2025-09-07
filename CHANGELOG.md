@@ -1,5 +1,10 @@
 # Changelog
 
+**1.11.0**
+
+- Fix EPIPE errors due to decoder not stopping once sufficient encoding packets received.
+- Add `strategy.encoding_packet.ecc` customization in `raptorq_suppa`.
+
 **1.10.0**
 
 - Breaking: Rename `"nogotation"` string to `"negotiation"` (fix typo) in `raptorq_suppa`.
@@ -43,6 +48,6 @@
 
 **1.3.0**:
 
- - Breaking: Rename `encoding_symbols` to `encoding_blocks`.
+ - Breaking: Rename `encoding_symbols` to `encoding_packets`.
  - Introduce `raptorq_suppa` interface with `strategy.sbn` customization.
  - Improve documentation.

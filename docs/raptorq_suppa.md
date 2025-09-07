@@ -97,6 +97,16 @@ strategy.encoding_packet: {
 		}
 		// note we calculate based on transfer length and symbol size how many symbols there are gonna be
 		// then we validate that this can be successfully converted using to_external
+	},
+	ecc: {
+		external_bits: 8n, // default is 0n, maximum is 1024.
+		generate_ecc: (data) => sha256_or_whatever(data), // will automatically be trimmed to external_bits if too high, takes in uint8array and returns a bigint!
+		// while raptorq allows recovery for missing packets, it does not recover from corrupt packets.
+		// it is assumed that packets are not corrupt.
+		// this supplementary "ecc" customization allows you to add an "ecc" header to each encoding packet for error detection on the packet level, and the decoder will automatically drop packets that look corrupt, preventing undefined behaviour.
+		// if you expect packet corruption (which you likely do) and don't have your own strategy to handle this, then you would have to consider using this "ecc" customization option
+		// it's recommended not to go below 32 bits, but go as high as 256 bits if you can.
+		// it depends how severe the outcome would be if undefined behaviour occured.
 	}
 }
 ```

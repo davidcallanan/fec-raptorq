@@ -1,6 +1,6 @@
 {
 	"name": "@davidcal/fec-raptorq",
-	"version": "1.10.0",
+	"version": "1.11.0",
 	"description": "Node.js wrapper for RaptorQ forward error correction, with additional functionality available",
 	"repository": {
 		"type": "git",

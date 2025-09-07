@@ -40,12 +40,6 @@ It is recommended that you configure each parameter to your use-case and not rel
   - Must be a multiple of `symbol_alignment`.
   - Present in the outputted `oti`.
 
-- **`num_repair_symbols`**
-  - Number of repair symbols generated per source block.
-  - Default: `15n`.
-  - Higher values provide more redundancy but increase overhead.
-  - Not present in the outputted `oti` since RaptorQ is designed as a fountain code.
-
 - **`num_source_blocks`**
   - **RFC 6330 (Z)** - Number of source blocks to divide the data into.
   - Default: `1n`.
@@ -69,6 +63,13 @@ It is recommended that you configure each parameter to your use-case and not rel
   - Use `4n` for optimal performance on 32-bit systems.
   - `symbol_size` must be divisible by this value.
   - Present in the outputted `oti`.
+  
+- **`num_repair_symbols`**
+  - Number of repair symbols generated per source block.
+  - Default: `15n`.
+  - Higher values provide more redundancy but increase overhead.
+  - Not present in the outputted `oti` since RaptorQ is designed as a fountain code.
+
   
 You do not have to explicitly provide the **RFC 6330 (F)** "transfer length", as this is determined by `data.length`.
 

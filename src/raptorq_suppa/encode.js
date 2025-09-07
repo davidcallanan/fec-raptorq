@@ -6,6 +6,9 @@ import { bigint_ceil } from "../uoe/bigint_ceil.js";
 import { oti_encode } from "./oti_encode.js";
 import { oti_decode as oti_decode_raw } from "../raptorq_raw/oti_decode.js";
 import { exact_strategy } from "./exact_strategy.js";
+import { packet_header_encode } from "./packet_header_encode.js";
+import { packet_miniheader_encode } from "./packet_miniheader_encode.js";
+import { calculate_ecc } from "./calculate_ecc.js";
 
 // Safe wrapper functions that validate transformations
 const safe_max_value = (bits) => {
@@ -130,98 +133,42 @@ export const encode__ = ({ raptorq_raw }, { options, data, strategy }) => {
 		}
 
 		for await (const packet of raw_result.encoding_packets) {
-			let transformed_packet;
+			// Extract internal SBN and ESI from raw packet
+			const sbn_byte = packet[0];
+			const esi_bytes = new Uint8Array(3);
+			esi_bytes[0] = packet[1];
+			esi_bytes[1] = packet[2];
+			esi_bytes[2] = packet[3];
+			const symbol_data = packet.slice(4);
 
-			if (strategy.encoding_packet.sbn.external_bits === 0n) {
-				// Remove SBN (first byte) from the packet - behaves like "disable" mode
-				const payload_without_sbn = packet.slice(1);
-
-				// Transform ESI (next 3 bytes) 
-				const esi_bytes = new Uint8Array(3);
-				esi_bytes[0] = payload_without_sbn[0];
-				esi_bytes[1] = payload_without_sbn[1];
-				esi_bytes[2] = payload_without_sbn[2];
-
-				// Convert ESI from bytes to internal value using BigInt for safe operations
-				const internal_esi = (BigInt(esi_bytes[0]) << 16n) | (BigInt(esi_bytes[1]) << 8n) | BigInt(esi_bytes[2]);
-
-				// Apply ESI remap to get external ESI value using safe wrapper
-				const external_esi = esi_wrappers.to_external_safe(internal_esi);
-
-				// Create ESI Uint1Array from BigInt
-				const esi_array = new Uint1Array(external_esi, Number(strategy.encoding_packet.esi.external_bits));
-
-				// Extract packed bytes and combine with symbol data
-				const packed_bytes = esi_array.to_uint8_array();
-				const symbol_data = payload_without_sbn.slice(3);
-
-				// Create the base packet
-				const base_packet_length = packed_bytes.length + symbol_data.length;
-				let final_packet;
-
-				if (strategy.oti.placement === "encoding_packet" && oti_for_packets) {
-					// Prepend OTI to the packet
-					final_packet = new Uint8Array(oti_for_packets.length + base_packet_length);
-					final_packet.set(oti_for_packets, 0);
-					final_packet.set(packed_bytes, oti_for_packets.length);
-					final_packet.set(symbol_data, oti_for_packets.length + packed_bytes.length);
-				} else {
-					final_packet = new Uint8Array(base_packet_length);
-					final_packet.set(packed_bytes, 0);
-					final_packet.set(symbol_data, packed_bytes.length);
-				}
-
-				transformed_packet = final_packet;
-			} else {
-				// Transform SBN (first byte) and ESI (next 3 bytes)
-				const sbn_byte = packet[0];
-				const esi_bytes = new Uint8Array(3);
-				esi_bytes[0] = packet[1];
-				esi_bytes[1] = packet[2];
-				esi_bytes[2] = packet[3];
-
-				// Convert SBN to external value using safe wrapper
-				const external_sbn = sbn_wrappers.to_external_safe(BigInt(sbn_byte));
-
-				// Convert ESI from bytes to internal value using BigInt for safe operations
-				const internal_esi = (BigInt(esi_bytes[0]) << 16n) | (BigInt(esi_bytes[1]) << 8n) | BigInt(esi_bytes[2]);
-
-				// Apply ESI remap to get external ESI value using safe wrapper
-				const external_esi = esi_wrappers.to_external_safe(internal_esi);
-
-				// Create separate Uint1Array instances for SBN and ESI
-				const sbn_array = new Uint1Array(external_sbn, Number(strategy.encoding_packet.sbn.external_bits));
-				const esi_array = new Uint1Array(external_esi, Number(strategy.encoding_packet.esi.external_bits));
-
-				// Create combined array using set method
-				const combined_array = new Uint1Array(Number(strategy.encoding_packet.sbn.external_bits + strategy.encoding_packet.esi.external_bits));
-				combined_array.set(sbn_array, 0);
-				combined_array.set(esi_array, Number(strategy.encoding_packet.sbn.external_bits));
-
-				// Extract packed bytes and combine with symbol data
-				const packed_bytes = combined_array.to_uint8_array();
-				const symbol_data = packet.slice(4);
-
-				// Create the base packet
-				const base_packet_length = packed_bytes.length + symbol_data.length;
-				let final_packet;
-
-				if (strategy.oti.placement === "encoding_packet" && oti_for_packets) {
-					// Prepend OTI to the packet
-					final_packet = new Uint8Array(oti_for_packets.length + base_packet_length);
-					final_packet.set(oti_for_packets, 0);
-					final_packet.set(packed_bytes, oti_for_packets.length);
-					final_packet.set(symbol_data, oti_for_packets.length + packed_bytes.length);
-				} else {
-					final_packet = new Uint8Array(base_packet_length);
-					final_packet.set(packed_bytes, 0);
-					final_packet.set(symbol_data, packed_bytes.length);
-				}
-
-				transformed_packet = final_packet;
+			// Convert to external values using safe wrappers
+			let external_sbn = null;
+			if (strategy.encoding_packet.sbn.external_bits > 0n) {
+				external_sbn = sbn_wrappers.to_external_safe(BigInt(sbn_byte));
 			}
 
-			yield transformed_packet;
+			// Convert ESI from bytes to internal value using BigInt for safe operations
+			const internal_esi = (BigInt(esi_bytes[0]) << 16n) | (BigInt(esi_bytes[1]) << 8n) | BigInt(esi_bytes[2]);
+			const external_esi = esi_wrappers.to_external_safe(internal_esi);
+
+			// Create packet header using utility functions
+			let header;
+			if (strategy.encoding_packet.ecc.external_bits > 0n) {
+				// ECC is enabled - need to calculate it first
+				const mini_header = packet_miniheader_encode(strategy, oti_for_packets, external_sbn, external_esi);
+				const ecc_value = calculate_ecc(strategy, mini_header, symbol_data);
+				header = packet_header_encode(strategy, oti_for_packets, external_sbn, external_esi, ecc_value);
+			} else {
+				// No ECC - header is just the miniheader
+				header = packet_miniheader_encode(strategy, oti_for_packets, external_sbn, external_esi);
+			}
+
+			// Combine header + symbol data
+			const final_packet = new Uint8Array(header.length + symbol_data.length);
+			final_packet.set(header, 0);
+			final_packet.set(symbol_data, header.length);
+
+			yield final_packet;
 		}
 	})();
 

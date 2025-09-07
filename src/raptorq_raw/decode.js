@@ -134,26 +134,97 @@ const decode_blocks = ({ binary_path }, input) => {
 
 	// Handle the async writing of OTI and symbols
 	(async () => {
+		let process_closed = false;
+
+		// Track when process closes so we can stop writing
+		process.on('close', () => {
+			process_closed = true;
+		});
+
+		process.on('exit', () => {
+			process_closed = true;
+		});
+
+		// Handle stdin errors (like EPIPE when process closes early)
+		process.stdin.on('error', (error) => {
+			if (error.code === 'EPIPE') {
+				// Process closed early (likely finished decoding) - this is normal
+				console.log('RaptorQ decoder closed stdin (decoding complete)');
+				process_closed = true;
+			} else {
+				// Other errors should be propagated
+				const wrapped_error = new Error(`Error writing to RaptorQ decoder stdin: ${error.message}`);
+				block_rej(wrapped_error);
+			}
+		});
+
 		try {
 			const oti = input.oti;
 			if (!(oti instanceof Uint8Array) || oti.length !== 12) {
 				throw new Error('OTI must be a 12-byte Uint8Array');
 			}
-			process.stdin.write(oti);
 
+			// Write OTI
+			if (!process_closed && !process.stdin.destroyed) {
+				process.stdin.write(oti);
+			}
+
+			// Write symbols, but stop if process closes
 			for await (const symbol of input.encoding_packets) {
+				// Check if process has closed before writing each symbol
+				if (process_closed || process.stdin.destroyed) {
+					console.log('Stopping symbol writing - decoder process closed');
+					break;
+				}
+
 				if (!(symbol instanceof Uint8Array)) {
 					throw new Error('Each symbol must be a Uint8Array');
 				}
-				process.stdin.write(symbol);
+
+				// Use a promise to detect write failures
+				try {
+					const write_successful = process.stdin.write(symbol);
+					if (!write_successful) {
+						// Wait for drain event or process close
+						await new Promise((resolve) => {
+							const onDrain = () => {
+								process.stdin.removeListener('close', onClose);
+								resolve();
+							};
+							const onClose = () => {
+								process.stdin.removeListener('drain', onDrain);
+								process_closed = true;
+								resolve();
+							};
+							process.stdin.once('drain', onDrain);
+							process.stdin.once('close', onClose);
+						});
+					}
+				} catch (write_error) {
+					if (write_error.code === 'EPIPE') {
+						console.log('EPIPE detected - decoder finished, stopping symbol feed');
+						break;
+					}
+					throw write_error;
+				}
 			}
 
-			process.stdin.end();
+			// Only end stdin if process is still running and stdin is not destroyed
+			if (!process_closed && !process.stdin.destroyed) {
+				process.stdin.end();
+			}
 		} catch (error) {
-			console.error(error);
-			const wrapped_error = new Error(`Error writing to RaptorQ decoder: ${error.message}`);
-			block_rej(wrapped_error);
-			process.kill();
+			// Don't log EPIPE errors as they're expected when decoder finishes early
+			if (error.code !== 'EPIPE') {
+				console.error('Error in RaptorQ decoder symbol writer:', error);
+				const wrapped_error = new Error(`Error writing to RaptorQ decoder: ${error.message}`);
+				block_rej(wrapped_error);
+			}
+
+			// Try to kill process if it's still running
+			if (!process_closed && !process.killed) {
+				process.kill();
+			}
 		}
 	})();
 

@@ -7,6 +7,7 @@ import { oti_decode as oti_decode_raw } from "../raptorq_raw/oti_decode.js";
 import { oti_encode as oti_encode_raw } from "../raptorq_raw/oti_encode.js";
 import { oti_decode } from "./oti_decode.js";
 import { exact_strategy } from "./exact_strategy.js";
+import { packet_header_decode } from "./packet_header_decode.js";
 
 // Safe wrapper functions that validate transformations
 const safe_max_value = (bits) => {
@@ -90,7 +91,6 @@ const obtain_async_iterator = (promise_like) => {
 // Factory function to create process_oti function for a given strategy
 const create_process_oti = (strategy) => {
 	return (input_oti) => {
-		console.log("===== decoded", oti_decode(strategy, input_oti));
 		return oti_encode_raw(oti_decode(strategy, input_oti));
 	};
 };
@@ -117,72 +117,35 @@ export const _decode = ({ raptorq_raw }, { usage, oti, encoding_packets, strateg
 	const transformed_encoding_packets = {
 		async *[Symbol.asyncIterator]() {
 			for await (const packet of encoding_packets) {
-				let transformed_packet;
-
-				if (strategy.encoding_packet.sbn.external_bits === 0n) {
-					// Extract ESI from packed bits using Uint1Array
-					const esi_bits = strategy.encoding_packet.esi.external_bits;
-					const esi_bytes_needed = bigint_ceil(esi_bits, 8n);
-					const esi_packed_bytes = packet.slice(0, Number(esi_bytes_needed));
-
-					// Create Uint1Array from packed bytes to extract ESI bits
-					const combined_array = new Uint1Array(Number(esi_bits));
-					combined_array.get_underlying_buffer().set(esi_packed_bytes);
-
-					// Extract ESI array (entire array in this case)
-					const esi_array = combined_array.slice(0, Number(esi_bits));
-					const external_esi = esi_array.to_bigint();
-
-					// Apply ESI remap to get internal ESI value using safe wrapper
-					const internal_esi = esi_wrappers.to_internal_safe(external_esi);
-
-					// Convert internal ESI to 3-byte format using BigInt for safe shifting
-					const internal_esi_bytes = new Uint8Array(3);
-					internal_esi_bytes[0] = Number((internal_esi >> 16n) & 0xFFn);
-					internal_esi_bytes[1] = Number((internal_esi >> 8n) & 0xFFn);
-					internal_esi_bytes[2] = Number(internal_esi & 0xFFn);
-
-					// Reconstruct packet: SBN (0) + internal ESI (3 bytes) + symbol data
-					const symbol_data = packet.slice(Number(esi_bytes_needed));
-					transformed_packet = new Uint8Array(1 + 3 + symbol_data.length);
-					transformed_packet[0] = 0; // SBN is 0 since external_bits is 0
-					transformed_packet.set(internal_esi_bytes, 1);
-					transformed_packet.set(symbol_data, 4);
-				} else {
-					// Extract SBN+ESI from packed bits using unified Uint1Array
-					const total_bits = strategy.encoding_packet.sbn.external_bits + strategy.encoding_packet.esi.external_bits;
-					const total_bytes_needed = bigint_ceil(total_bits, 8n);
-					const packed_bytes = packet.slice(0, Number(total_bytes_needed));
-
-					// Create unified Uint1Array from packed bytes
-					const combined_array = new Uint1Array(Number(total_bits));
-					combined_array.get_underlying_buffer().set(packed_bytes);
-
-					// Extract separate SBN and ESI arrays
-					const sbn_array = combined_array.slice(0, Number(strategy.encoding_packet.sbn.external_bits));
-					const esi_array = combined_array.slice(Number(strategy.encoding_packet.sbn.external_bits), Number(total_bits));
-
-					// Convert to values using BigInt
-					const external_sbn = sbn_array.to_bigint();
-					const external_esi = esi_array.to_bigint();
-
-					// Apply remap functions to get internal values using safe wrappers
-					const internal_sbn = sbn_wrappers.to_internal_safe(external_sbn);
-					const internal_esi = esi_wrappers.to_internal_safe(external_esi);
-
-					// Convert internal ESI to 3-byte format
-					const internal_esi_bytes = new Uint8Array(3);
-					internal_esi_bytes[0] = Number((internal_esi >> 16n) & 0xFFn);
-					internal_esi_bytes[1] = Number((internal_esi >> 8n) & 0xFFn);
-					internal_esi_bytes[2] = Number(internal_esi & 0xFFn);
-
-					// Reconstruct packet: SBN (1 byte) + internal ESI (3 bytes) + symbol data
-					const symbol_data = packet.slice(Number(total_bytes_needed));
-					transformed_packet = new Uint8Array(1 + 3 + symbol_data.length);
-					transformed_packet[0] = Number(internal_sbn & 0xFFn); // Convert to single byte
-					transformed_packet.set(internal_esi_bytes, 1);
-					transformed_packet.set(symbol_data, 4);
+				// Decode and verify packet header using utility function
+				const header_result = packet_header_decode(strategy, packet);
+				
+				if (!header_result.valid) {
+					// Silently drop invalid packet (ECC mismatch or other issues)
+					continue;
 				}
+
+				const { external_sbn, external_esi, symbol_data } = header_result;
+
+				// Convert external values to internal values using safe wrappers
+				let internal_sbn = 0n;
+				if (strategy.encoding_packet.sbn.external_bits > 0n && external_sbn !== null) {
+					internal_sbn = sbn_wrappers.to_internal_safe(external_sbn);
+				}
+
+				const internal_esi = esi_wrappers.to_internal_safe(external_esi);
+
+				// Convert internal ESI to 3-byte format
+				const internal_esi_bytes = new Uint8Array(3);
+				internal_esi_bytes[0] = Number((internal_esi >> 16n) & 0xFFn);
+				internal_esi_bytes[1] = Number((internal_esi >> 8n) & 0xFFn);
+				internal_esi_bytes[2] = Number(internal_esi & 0xFFn);
+
+				// Reconstruct packet in raw format: SBN (1 byte) + internal ESI (3 bytes) + symbol data
+				const transformed_packet = new Uint8Array(1 + 3 + symbol_data.length);
+				transformed_packet[0] = Number(internal_sbn & 0xFFn); // Convert to single byte
+				transformed_packet.set(internal_esi_bytes, 1);
+				transformed_packet.set(symbol_data, 4);
 
 				yield transformed_packet;
 			}
@@ -192,51 +155,44 @@ export const _decode = ({ raptorq_raw }, { usage, oti, encoding_packets, strateg
 	return raptorq_raw.decode({ usage, oti: processed_oti, encoding_packets: transformed_encoding_packets });
 };
 
-// Helper function to calculate expected OTI size from strategy
-const calculate_oti_size = (strategy) => {
-	if (Object.keys(strategy.oti).length === 0) {
-		return 12; // Default 12-byte OTI
+// Helper function to calculate expected header size from strategy (including ECC + OTI + SBN + ESI)
+const calculate_header_size = (strategy) => {
+	let total_bits = 0n;
+
+	// ECC bits
+	total_bits += strategy.encoding_packet.ecc.external_bits;
+
+	// OTI bits (if per-packet placement)
+	if (strategy.oti.placement === "encoding_packet") {
+		const oti_config = {
+			transfer_length: { external_bits: 40n, ...strategy.oti.transfer_length },
+			fec_encoding_id: { external_bits: 8n, ...strategy.oti.fec_encoding_id },
+			symbol_size: { external_bits: 16n, ...strategy.oti.symbol_size },
+			num_source_blocks: { external_bits: 8n, ...strategy.oti.num_source_blocks },
+			num_sub_blocks: { external_bits: 16n, ...strategy.oti.num_sub_blocks },
+			symbol_alignment: { external_bits: 8n, ...strategy.oti.symbol_alignment },
+		};
+
+		const oti_total_bits = (0n
+			+ oti_config.transfer_length.external_bits
+			+ oti_config.fec_encoding_id.external_bits
+			+ oti_config.symbol_size.external_bits
+			+ oti_config.num_source_blocks.external_bits
+			+ oti_config.num_sub_blocks.external_bits
+			+ oti_config.symbol_alignment.external_bits
+		);
+
+		total_bits += oti_total_bits;
 	}
 
-	// Set defaults for all OTI fields exactly like the encoder does
-	const oti_config = {
-		transfer_length: {
-			external_bits: 40n,
-			...strategy.oti.transfer_length
-		},
-		fec_encoding_id: {
-			external_bits: 8n,
-			...strategy.oti.fec_encoding_id
-		},
-		symbol_size: {
-			external_bits: 16n,
-			...strategy.oti.symbol_size
-		},
-		num_source_blocks: {
-			external_bits: 8n,
-			...strategy.oti.num_source_blocks
-		},
-		num_sub_blocks: {
-			external_bits: 16n,
-			...strategy.oti.num_sub_blocks
-		},
-		symbol_alignment: {
-			external_bits: 8n,
-			...strategy.oti.symbol_alignment
-		},
-	};
+	// SBN bits
+	total_bits += strategy.encoding_packet.sbn.external_bits;
 
-	const total_bits = (0n
-		+ oti_config.transfer_length.external_bits
-		+ oti_config.fec_encoding_id.external_bits
-		+ oti_config.symbol_size.external_bits
-		+ oti_config.num_source_blocks.external_bits
-		+ oti_config.num_sub_blocks.external_bits
-		+ oti_config.symbol_alignment.external_bits
-	);
+	// ESI bits
+	total_bits += strategy.encoding_packet.esi.external_bits;
 
 	if (total_bits === 0n) {
-		return 0; // No OTI needed
+		return 0;
 	}
 
 	return Number(bigint_ceil(total_bits, 8n));
@@ -252,42 +208,39 @@ export const decode__ = ({ raptorq_raw }, { usage, oti, encoding_packets, strate
 			throw_error(error_user_payload("When strategy.oti.placement is 'encoding_packet', the oti parameter must be undefined"));
 		}
 
-		// Extract OTI from encoding packets and call _decode once we have it
-		const expected_oti_size = calculate_oti_size(strategy);
-
-		if (expected_oti_size === 0) {
-			// No OTI expected, pass packets through unchanged
-			return _decode({ raptorq_raw }, { usage, oti: undefined, encoding_packets, strategy });
-		}
-
+		// For per-packet OTI, we need to extract OTI from the first valid packet
 		let extracted_oti = null;
 		let oti_resolved = false;
 		const [oti_prom, oti_prom_res, oti_prom_rej] = create_unsuspended_promise();
 
 		const oti_extracting_packets = (async function* () {
 			for await (const packet of encoding_packets) {
+				// Decode packet header to extract OTI (and verify ECC)
+				const header_result = packet_header_decode(strategy, packet);
+				
+				if (!header_result.valid) {
+					// Silently drop invalid packet
+					continue;
+				}
+
 				if (!oti_resolved) {
-					if (packet.length < expected_oti_size) {
-						throw_error(error_user_payload(`Packet too small to contain OTI. Expected at least ${expected_oti_size} bytes, got ${packet.length}`));
+					if (!header_result.oti_data) {
+						throw_error(error_user_payload("Per-packet OTI placement expected but no OTI found in packet"));
 					}
 
-					// Extract OTI from the beginning of the packet
-					const packet_oti = packet.slice(0, expected_oti_size);
-					const remaining_packet = packet.slice(expected_oti_size);
-
 					if (extracted_oti === null) {
-						// First packet - store the OTI
-						extracted_oti = packet_oti;
+						// First valid packet - store the OTI
+						extracted_oti = header_result.oti_data;
 						oti_prom_res(extracted_oti);
 						oti_resolved = true;
 					} else {
 						// Subsequent packets - verify OTI consistency
 						let oti_matches = true;
-						if (packet_oti.length !== extracted_oti.length) {
+						if (!header_result.oti_data || header_result.oti_data.length !== extracted_oti.length) {
 							oti_matches = false;
 						} else {
-							for (let i = 0; i < packet_oti.length; i++) {
-								if (packet_oti[i] !== extracted_oti[i]) {
+							for (let i = 0; i < header_result.oti_data.length; i++) {
+								if (header_result.oti_data[i] !== extracted_oti[i]) {
 									oti_matches = false;
 									break;
 								}
@@ -298,12 +251,29 @@ export const decode__ = ({ raptorq_raw }, { usage, oti, encoding_packets, strate
 							throw_error(error_user_payload("OTI mismatch detected in encoding packets. All packets must have identical OTI when using per-packet placement."));
 						}
 					}
-
-					yield remaining_packet;
-				} else {
-					// OTI already extracted, just strip it from packets
-					yield packet.slice(expected_oti_size);
 				}
+
+				// Convert external values to internal values using safe wrappers
+				let internal_sbn = 0n;
+				if (strategy.encoding_packet.sbn.external_bits > 0n && header_result.external_sbn !== null) {
+					internal_sbn = sbn_wrappers.to_internal_safe(header_result.external_sbn);
+				}
+
+				const internal_esi = esi_wrappers.to_internal_safe(header_result.external_esi);
+
+				// Convert internal ESI to 3-byte format
+				const internal_esi_bytes = new Uint8Array(3);
+				internal_esi_bytes[0] = Number((internal_esi >> 16n) & 0xFFn);
+				internal_esi_bytes[1] = Number((internal_esi >> 8n) & 0xFFn);
+				internal_esi_bytes[2] = Number(internal_esi & 0xFFn);
+
+				// Reconstruct packet in raw format: SBN (1 byte) + internal ESI (3 bytes) + symbol data
+				const transformed_packet = new Uint8Array(1 + 3 + header_result.symbol_data.length);
+				transformed_packet[0] = Number(internal_sbn & 0xFFn);
+				transformed_packet.set(internal_esi_bytes, 1);
+				transformed_packet.set(header_result.symbol_data, 4);
+
+				yield transformed_packet;
 			}
 		})();
 
